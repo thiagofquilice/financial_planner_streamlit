@@ -31,6 +31,57 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 
+def normalize_monthly_series(
+    state: st.session_state, product_index: int, horizon_years: int
+) -> List[Dict[str, float]]:
+    """Return a monthly price/quantity series aligned with the planning horizon.
+
+    The wizard allows users to configure per-product monthly overrides. When
+    the configured list is shorter than the planning horizon (or absent),
+    downstream projections previously encountered division-by-zero errors when
+    computing ``months_per_year``.  This helper centralises the normalisation
+    logic by padding the series up to ``horizon_years * 12`` months while
+    carrying forward the latest known price/quantity.
+
+    Args:
+        state: Streamlit ``session_state`` containing all inputs.
+        product_index: Index of the product within ``state["revenue"]``.
+        horizon_years: Planning horizon in years (minimum of 1).
+
+    Returns:
+        A list of dictionaries with keys ``price`` and ``qty`` covering exactly
+        ``horizon_years * 12`` months.
+    """
+
+    horizon = max(int(horizon_years or 0), 1)
+    target_months = horizon * 12
+    revenue_items = state.get("revenue", [])
+    product = revenue_items[product_index] if product_index < len(revenue_items) else {}
+    monthly_cfg = state.get("revenue_monthly", {}).get(product_index, {}) or {}
+    monthly_list = monthly_cfg.get("monthly") or []
+    if not isinstance(monthly_list, list):
+        monthly_list = []
+
+    # Base price/quantity fallback from product definition
+    base_price = float(product.get("price", 0.0) or 0.0)
+    base_qty = float(product.get("qty", 0.0) or 0.0)
+    normalized: List[Dict[str, float]] = []
+    last_price = base_price
+    last_qty = base_qty
+    for idx in range(target_months):
+        if idx < len(monthly_list):
+            entry = monthly_list[idx] or {}
+            price = float(entry.get("price", last_price) or 0.0)
+            qty = float(entry.get("qty", last_qty) or 0.0)
+        else:
+            price = last_price
+            qty = last_qty
+        last_price = price
+        last_qty = qty
+        normalized.append({"price": price, "qty": qty})
+    return normalized
+
+
 def compute_summary(state: st.session_state) -> Dict[str, float]:
     """Compute simple aggregated totals based on session state.
 
@@ -83,7 +134,7 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
         capex_total: Total capital expenditure (used outside for summary).
     """
     # Number of years in the projection (horizon)
-    n_years = int(state.get("horizon", 1) or 1)
+    n_years = max(int(state.get("horizon", 1) or 0), 1)
     # Lists to accumulate revenue and quantities per year across all products
     rev_per_year = [0.0 for _ in range(n_years)]
     # For each product, we store the aggregated quantity per year to compute costs later
@@ -92,18 +143,11 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
     variable_cost_per_unit_list: List[float] = []
     # Iterate products to build aggregates
     for i, item in enumerate(state.get("revenue", [])):
-        monthly_cfg = state.get("revenue_monthly", {}).get(i, {})
-        monthly_data = monthly_cfg.get("monthly")
-        # Determine number of months from monthly data or fall back to horizon*12
-        months_total = 0
-        if isinstance(monthly_data, list) and len(monthly_data) > 0:
-            months_total = len(monthly_data)
-        else:
-            # no monthly data: treat as constant price/qty across horizon
-            months_total = n_years * 12
-            monthly_data = [{"price": float(item.get("price", 0) or 0), "qty": float(item.get("qty", 0) or 0)} for _ in range(months_total)]
-        # Determine months per year (assume horizon*12 divides equally)
-        months_per_year = months_total // n_years if n_years > 0 else 12
+        monthly_data = normalize_monthly_series(state, i, n_years)
+        months_total = len(monthly_data)
+        months_per_year = months_total // n_years if n_years > 0 else months_total
+        if months_per_year == 0:
+            months_per_year = 12
         # Aggregate revenue and quantity per year for this product
         qty_year = [0.0 for _ in range(n_years)]
         rev_year = [0.0 for _ in range(n_years)]
@@ -279,6 +323,8 @@ def compute_mirr(cashflows: List[float], finance_rate: float, reinvest_rate: flo
         The MIRR as a decimal, or None if negative cash flows are zero.
     """
     n = len(cashflows) - 1
+    if n <= 0:
+        return None
     # Present value of negative cash flows discounted at finance_rate
     pv_neg = 0.0
     for t, cf in enumerate(cashflows):
@@ -387,14 +433,7 @@ def compute_break_even(state: st.session_state, variation: float = 1.0) -> Optio
     cost_per_unit_list: List[float] = []
     var_cost_per_unit_list: List[float] = []
     for idx, item in enumerate(state.get("revenue", [])):
-        monthly = state.get("revenue_monthly", {}).get(idx, {}).get("monthly", [])
-        if not monthly or len(monthly) < months_per_year:
-            # Fall back to constant price/qty
-            monthly = []
-            price = float(item.get("price", 0.0))
-            qty = float(item.get("qty", 0.0))
-            for _ in range(months):
-                monthly.append({"price": price, "qty": qty})
+        monthly = normalize_monthly_series(state, idx, horizon)
         # Aggregate revenue and quantity for year 1 (first months_per_year months)
         rev = 0.0
         qty_sum = 0.0
@@ -479,20 +518,18 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
         annual DataFrame aggregates these values by year and includes
         identical columns plus the year number.
     """
-    horizon = int(state.get("horizon", 1) or 1)
+    horizon = max(int(state.get("horizon", 1) or 0), 1)
     months_total = horizon * 12
+    normalized_monthlies: List[List[Dict[str, float]]] = [
+        normalize_monthly_series(state, idx, horizon)
+        for idx, _ in enumerate(state.get("revenue", []))
+    ]
     # Precompute cost per unit and variable cost per unit per product
     cost_per_unit_list: List[float] = []
     var_cost_per_unit_list: List[float] = []
     qty_total_list: List[float] = []
     for idx, prod in enumerate(state.get("revenue", [])):
-        # Determine total quantity across all months (base quantities)
-        monthly_data = state.get("revenue_monthly", {}).get(idx, {}).get("monthly", [])
-        if not monthly_data or len(monthly_data) != months_total:
-            # fallback to constant price/qty list
-            p = float(prod.get("price", 0.0))
-            q = float(prod.get("qty", 0.0))
-            monthly_data = [{"price": p, "qty": q} for _ in range(months_total)]
+        monthly_data = normalized_monthlies[idx]
         total_qty = sum(float(m.get("qty", 0.0)) * variation for m in monthly_data)
         qty_total_list.append(total_qty)
         # Sum direct costs (quantity * unit) from costs list
@@ -539,11 +576,7 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
         # Compute revenue per year for current variation
         revenue_years = [0.0 for _ in range(horizon)]
         for idx, prod in enumerate(state.get("revenue", [])):
-            monthly_data = state.get("revenue_monthly", {}).get(idx, {}).get("monthly", [])
-            if not monthly_data or len(monthly_data) != months_total:
-                p = float(prod.get("price", 0.0))
-                q = float(prod.get("qty", 0.0))
-                monthly_data = [{"price": p, "qty": q} for _ in range(months_total)]
+            monthly_data = normalized_monthlies[idx]
             for m_idx, m_data in enumerate(monthly_data):
                 yr = min(m_idx // 12, horizon - 1)
                 revenue_years[yr] += float(m_data.get("price", 0.0)) * float(m_data.get("qty", 0.0)) * variation
@@ -575,11 +608,7 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
         # Build new list to update next loop outside (we will reassign after loop)
         new_prev_rev_per_prod: List[float] = []
         for idx, prod in enumerate(state.get("revenue", [])):
-            monthly_data = state.get("revenue_monthly", {}).get(idx, {}).get("monthly", [])
-            if not monthly_data or len(monthly_data) != months_total:
-                p = float(prod.get("price", 0.0))
-                q = float(prod.get("qty", 0.0))
-                monthly_data = [{"price": p, "qty": q} for _ in range(months_total)]
+            monthly_data = normalized_monthlies[idx]
             m_data = monthly_data[m]
             qty_m = float(m_data.get("qty", 0.0)) * variation
             price_m = float(m_data.get("price", 0.0))
