@@ -161,15 +161,16 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
         for y in range(n_years):
             rev_per_year[y] += rev_year[y]
         qty_per_product_per_year.append(qty_year)
-        # Compute cost per unit for this product based on total quantity across all months
-        total_qty_for_cost = sum(qty_year)
+        # Compute direct cost per unit for this product. Each cost item already
+        # represents the per-unit quantity multiplied by its unit price, so we
+        # avoid dividing by the projected quantity (which previously diluted the
+        # cost and yielded underestimated totals).
         product_costs = 0.0
         for cost_item in state.get("costs", {}).get(i, []):
             c_qty = float(cost_item.get("qty", 0) or 0)
             c_unit = float(cost_item.get("unit", 0) or 0)
             product_costs += c_qty * c_unit
-        cost_per_unit = (product_costs / total_qty_for_cost) if total_qty_for_cost > 0 else 0.0
-        cost_per_unit_list.append(cost_per_unit)
+        cost_per_unit_list.append(product_costs)
         # Sum variable expenses per unit for this product
         var_expenses = state.get("variable_expenses", {}).get(i, [])
         var_cost_per_unit = 0.0
@@ -446,12 +447,12 @@ def compute_break_even(state: st.session_state, variation: float = 1.0) -> Optio
         per_prod_qty.append(qty_sum)
         total_revenue_y1 += rev
         # Compute cost per unit and variable cost per unit for this product (aggregated over all months)
-        # Sum all cost items (qty * unit)
+        # Sum all cost items (qty * unit). These entries already reflect per-unit costs,
+        # so avoid dividing by the sold quantity.
         total_direct = 0.0
         for c in state.get("costs", {}).get(idx, []):
             total_direct += float(c.get("qty", 0.0)) * float(c.get("unit", 0.0))
-        cost_per_unit = (total_direct / qty_sum) if qty_sum > 0 else 0.0
-        cost_per_unit_list.append(cost_per_unit)
+        cost_per_unit_list.append(total_direct)
         # Sum variable expenses per unit (quantity * unit)
         var_exp = 0.0
         for v in state.get("variable_expenses", {}).get(idx, []):
@@ -527,17 +528,13 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
     # Precompute cost per unit and variable cost per unit per product
     cost_per_unit_list: List[float] = []
     var_cost_per_unit_list: List[float] = []
-    qty_total_list: List[float] = []
     for idx, prod in enumerate(state.get("revenue", [])):
         monthly_data = normalized_monthlies[idx]
-        total_qty = sum(float(m.get("qty", 0.0)) * variation for m in monthly_data)
-        qty_total_list.append(total_qty)
         # Sum direct costs (quantity * unit) from costs list
         total_direct = 0.0
         for c in state.get("costs", {}).get(idx, []):
             total_direct += float(c.get("qty", 0.0)) * float(c.get("unit", 0.0))
-        cost_per_unit = (total_direct / total_qty) if total_qty > 0 else 0.0
-        cost_per_unit_list.append(cost_per_unit)
+        cost_per_unit_list.append(total_direct)
         # Sum variable expenses per unit (quantity * unit cost for each item)
         var_cost_unit = 0.0
         for v in state.get("variable_expenses", {}).get(idx, []):
