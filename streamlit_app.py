@@ -30,6 +30,137 @@ import streamlit as st
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
+GOVERNANCE_QUESTIONS = [
+    {
+        "title": "Pergunta 1 – Alinhamento de expectativas entre os fundadores",
+        "question": "Em relação às expectativas de cada sócio sobre o futuro da startup (propósito, tamanho desejado, estilo de gestão, possibilidade de venda/IPO etc.), qual alternativa descreve melhor a sua situação?",
+        "options": {
+            "a": "Nunca conversamos seriamente sobre isso; cada um tem sua visão e seguimos “tocando”.",
+            "b": "Já conversamos de forma informal, mas não temos nada estruturado ou registrado.",
+            "c": "Fizemos uma conversa estruturada, alinhamos expectativas e registramos os principais pontos em algum documento (ex.: ata, e-mail, anotação compartilhada).",
+            "d": "Além de alinharmos expectativas e registrarmos, revisitamos esse alinhamento periodicamente e o usamos como base para decisões estratégicas.",
+        },
+        "recommendations": {
+            "a": "Vocês ainda não alinharam as expectativas sobre futuro da startup. É importante marcar uma conversa estruturada para discutir propósito, ambição de crescimento, possibilidade de venda/IPO, nível de risco aceitável e estilo de gestão. Sem esse alinhamento, aumenta muito o risco de conflitos entre sócios no curto e médio prazo.",
+            "b": "Vocês já deram um primeiro passo ao falar do assunto de forma informal, mas o próximo movimento é formalizar essa conversa. Registrem os principais pontos em um documento simples (ata, e-mail compartilhado ou nota em drive) para que todos tenham clareza e possam revisitar esses combinados no futuro.",
+            "c": "Vocês já têm um bom nível de alinhamento, com conversas estruturadas e registro das expectativas. O passo seguinte é definir momentos periódicos (por exemplo, a cada 6 ou 12 meses) para revisar esses combinados, garantindo que as expectativas continuem convergentes conforme o negócio evolui.",
+            "d": "Vocês estão em um nível avançado de alinhamento para a fase de ideação, revisitando as expectativas e usando-as como base para decisões estratégicas. Mantenham esse hábito e considerem incorporar parte desse alinhamento em documentos societários formais quando a empresa for constituída.",
+        },
+    },
+    {
+        "title": "Pergunta 2 – Capacidade financeira pessoal e “perda suportável”",
+        "question": "Como os fundadores tratam a questão da capacidade financeira pessoal para sustentar-se enquanto a startup não gera renda suficiente?",
+        "options": {
+            "a": "Nunca falamos sobre isso; cada um “se vira” como pode.",
+            "b": "Sabemos, por alto, que alguns têm mais ou menos fôlego financeiro, mas não tratamos disso de forma aberta.",
+            "c": "Conversamos abertamente sobre o fôlego financeiro de cada sócio, mas não usamos isso formalmente no planejamento do negócio.",
+            "d": "Conversamos abertamente, estimamos por quanto tempo cada um consegue se manter e usamos essa informação para planejar o ritmo da startup e decisões-chave.",
+        },
+        "recommendations": {
+            "a": "A capacidade financeira pessoal dos(as) fundadores(as) não está sendo considerada, o que é um risco importante. Vocês precisam conversar abertamente sobre o fôlego financeiro de cada pessoa, estimar quanto tempo cada um consegue se manter e ajustar o plano da startup (ritmo, dedicação, prazos) a essa realidade.",
+            "b": "Vocês têm alguma noção do fôlego financeiro de cada sócio, mas o tema ainda não é tratado de forma estruturada. Vale organizar uma conversa específica para levantar números mais concretos, estimar o “runway pessoal” e usar isso como insumo para o planejamento de metas, captação e mudanças de fase do negócio.",
+            "c": "A abertura para falar de fôlego financeiro já existe, o que é ótimo. O próximo passo é incorporar esses dados de forma explícita no planejamento da startup – por exemplo, definindo prazos para validar hipóteses, pontos de decisão (pivotar/encerrar/capitalizar) e eventuais necessidades de complementação de renda.",
+            "d": "Vocês utilizam a capacidade financeira pessoal como um insumo real de planejamento, o que é uma boa prática de governança. Continuem revisando esses números periodicamente, especialmente em momentos de mudança de estratégia ou de aumento de dedicação, para evitar surpresas e desgastes entre os(as) fundadores(as).",
+        },
+    },
+    {
+        "title": "Pergunta 3 – Formas de contribuição de cada sócio (capital, tempo e conhecimento)",
+        "question": "Como está definida hoje a forma de contribuição de cada sócio (capital financeiro, tempo, conhecimentos, rede de contatos etc.)?",
+        "options": {
+            "a": "Não temos definição; cada um contribui como consegue, sem combinação específica.",
+            "b": "Já conversamos, mas de maneira genérica, sem clareza de quanto tempo ou dinheiro cada um colocará.",
+            "c": "Definimos e registramos quanto cada sócio contribuirá (tempo, capital, conhecimento), mas ainda não revisamos essas definições à medida que o projeto avança.",
+            "d": "Definimos, registramos e revisamos periodicamente a contribuição de cada sócio, ajustando quando alguém não consegue cumprir o combinado.",
+        },
+        "recommendations": {
+            "a": "Hoje não há clareza sobre quem contribui com o quê, o que pode gerar sensação de injustiça e conflitos. É importante definir explicitamente as contribuições esperadas de cada sócio (tempo semanal, capital financeiro, conhecimento, rede de contatos) e registrar esse combinado, mesmo em um documento simples.",
+            "b": "Vocês já conversaram sobre contribuições, mas ainda de forma genérica. O próximo passo é transformar essa conversa em compromissos mais objetivos: horas semanais dedicadas, valores de aportes, responsabilidades-chave. Colocar isso por escrito ajuda a alinhar expectativas e a cobrar de forma mais transparente.",
+            "c": "Vocês definiram e registraram contribuições, o que é um bom nível de organização. Para evoluir, criem o hábito de revisar essas definições periodicamente (por exemplo, a cada trimestre), ajustando o acordo quando alguém passa a contribuir mais ou menos do que o inicialmente combinado.",
+            "d": "A governança sobre contribuições está bem estruturada: definição, registro e revisão periódica. O próximo passo pode ser conectar essas contribuições a instrumentos mais formais (como acordo de sócios e mecanismos de vesting) conforme a empresa avança para fases posteriores.",
+        },
+    },
+    {
+        "title": "Pergunta 4 – Participação societária e critérios de divisão do “bolo”",
+        "question": "Como vocês definiram (ou pretendem definir) a participação societária entre os fundadores?",
+        "options": {
+            "a": "A ideia é dividir igualmente entre todos, independentemente de quem executa mais ou aporta recursos.",
+            "b": "A divisão considerou quem teve a ideia inicial, mas pouco considerou tempo de dedicação e execução.",
+            "c": "A divisão considerou principalmente dedicação, execução e aportes (tempo e dinheiro), e não apenas quem teve a ideia, ainda que o acordo seja mais informal.",
+            "d": "A divisão considera dedicação, execução e aportes, está registrada e ligada a condições objetivas (ex.: tempo mínimo de permanência – revesting – e metas).",
+        },
+        "recommendations": {
+            "a": "Dividir a sociedade igualmente por padrão pode parecer justo no início, mas costuma ignorar diferenças de dedicação, responsabilidade e risco assumido. Vale discutir critérios mais objetivos para a divisão societária (tempo de dedicação, execução, aportes de capital) e considerar um modelo que reflita melhor a contribuição de cada pessoa.",
+            "b": "Valorizar a ideia inicial é legítimo, mas, na prática, é a execução que cria valor. Seria importante reavaliar a divisão societária para dar mais peso à dedicação, ao trabalho contínuo e aos aportes, reduzindo a concentração de participação apenas em quem “teve a ideia”.",
+            "c": "Vocês já basearam a divisão em dedicação e aportes, o que é positivo. O próximo passo é formalizar esse arranjo em documento (e, depois, em contrato social ou acordo de sócios) e avaliar mecanismos de vesting, para que a participação esteja condicionada à permanência e à contribuição ao longo do tempo.",
+            "d": "A estrutura societária de vocês está bem alinhada com boas práticas: baseada em contribuição, registrada e atrelada a condições objetivas (como tempo mínimo e metas). Mantenham a disciplina de revisar essas condições quando houver mudanças relevantes na equipe ou na estratégia.",
+        },
+    },
+    {
+        "title": "Pergunta 5 – Regras de saída de sócios e entrada de novos",
+        "question": "Quais são as regras para saída de um sócio ou entrada de novos sócios?",
+        "options": {
+            "a": "Não temos nenhuma regra; se alguém quiser sair ou entrar, veremos o que fazer na hora.",
+            "b": "Já conversamos sobre possíveis saídas e entradas, mas sem definir valores, prazos ou procedimentos.",
+            "c": "Temos regras combinadas (ainda que simples) sobre saída e entrada de sócios, mas não estão documentadas.",
+            "d": "Temos regras claras e registradas sobre saída (inclusive cálculo de haveres, prazos e não concorrência) e entrada de novos sócios.",
+        },
+        "recommendations": {
+            "a": "Não ter regras de saída e entrada é um dos maiores riscos de conflito societário. É importante discutir desde já cenários de saída (voluntária, por desempenho, por necessidade pessoal) e de entrada de novos sócios, definindo pelo menos critérios de preço, prazos de pagamento e permanência.",
+            "b": "Vocês já perceberam a importância do tema e discutiram possibilidades, mas ainda sem concretizar. O próximo passo é transformar essas conversas em regras mínimas: como será calculado o valor de saída, em quantas parcelas, se haverá carência, se existe cláusula de não concorrência etc., mesmo que de forma simplificada.",
+            "c": "As regras de saída e entrada existem na prática, ainda que só na palavra. Para reduzir riscos, vale muito a pena colocá-las por escrito (em e-mail formal ou documento de founders agreement) e, se possível, consultar um(a) advogado(a) para ajustar pontos mais sensíveis.",
+            "d": "Ter regras claras e registradas sobre saída e entrada é um grande diferencial em governança, especialmente em startups. Mantenham esse documento vivo, revisando quando houver mudanças relevantes e garantindo que todas as partes compreendem bem os impactos de cada cláusula.",
+        },
+    },
+    {
+        "title": "Pergunta 6 – Existência de um acordo de fundadores (founders agreement)",
+        "question": "Sobre a formalização das principais combinações entre os fundadores (papéis, participações, regras de saída, sigilo etc.), qual situação melhor descreve vocês?",
+        "options": {
+            "a": "Não temos nenhum documento entre os fundadores.",
+            "b": "Temos apenas mensagens soltas (WhatsApp, e-mails) com algumas decisões, mas nada organizado em documento único.",
+            "c": "Temos um documento simples (ex.: 2–5 páginas) que registra papéis, contribuições, participação societária e pontos básicos de saída/entrada.",
+            "d": "Temos um founders agreement que, além dos pontos básicos, trata de exclusividade, sigilo, não concorrência e propriedade intelectual.",
+        },
+        "recommendations": {
+            "a": "A ausência total de documento entre fundadores deixa a startup muito exposta a conflitos futuros. Vale criar ao menos um founders agreement simples, registrando papéis, contribuições, participação societária, regras de saída/entrada e princípios de tomada de decisão.",
+            "b": "As decisões dispersas em mensagens e e-mails são vulneráveis a interpretações diferentes no futuro. Um passo importante é consolidar esses combinados em um documento único, organizado, que todos leiam, revisem e assinem (mesmo que digitalmente), facilitando a governança do grupo.",
+            "c": "Ter um documento simples já é uma boa base de governança. Para avançar, vocês podem incluir temas como propriedade intelectual, confidencialidade, não concorrência e critérios para conflitos, além de revisar o acordo à medida que novas fases do negócio surgirem.",
+            "d": "Vocês já possuem um founders agreement bastante completo para a fase de ideação. A recomendação é revisar esse documento periodicamente (ou em eventos de mudança relevante, como entrada de investidor(a) ou de novos sócios) e garantir que ele esteja alinhado ao contrato social e a instrumentos futuros.",
+        },
+    },
+    {
+        "title": "Pergunta 7 – Propriedade intelectual e confidencialidade",
+        "question": "Como vocês tratam a propriedade intelectual (código, marca, metodologia, design, domínio) e o sigilo sobre o negócio?",
+        "options": {
+            "a": "Nada foi combinado; cada sócio desenvolve materiais e não está claro de quem é o quê.",
+            "b": "Temos um entendimento verbal de que “tudo é da startup”, mas sem nada escrito.",
+            "c": "Temos combinado escrito (mesmo que simples) de que toda a propriedade intelectual produzida para o projeto pertence à futura empresa.",
+            "d": "Além desse combinado, temos cláusulas de confidencialidade e não concorrência previstas entre os envolvidos.",
+        },
+        "recommendations": {
+            "a": "A falta de clareza sobre quem detém a propriedade intelectual pode gerar disputas sérias mais à frente. É essencial definir, por escrito, que todo código, marca, metodologia, design e domínio ligados ao projeto pertencem à startup (ou à futura pessoa jurídica) e não a um indivíduo isolado.",
+            "b": "O entendimento verbal de que “tudo é da startup” é um bom começo, mas frágil juridicamente. Vale redigir um documento simples atribuindo a propriedade intelectual à startup, acompanhado de cláusulas de confidencialidade básicas, evitando problemas quando alguém sair ou quando entrarem investidores.",
+            "c": "Vocês já têm um combinado escrito sobre propriedade intelectual, o que é um passo importante. Para fortalecer essa governança, considerem: incluir cláusulas de sigilo e não concorrência, registrar marca e domínio em nome da empresa (ou dos sócios em condomínio até a constituição) e organizar o controle de acesso a repositórios e documentos.",
+            "d": "A governança de propriedade intelectual e confidencialidade está bem madura para a fase em que vocês estão. O próximo passo é garantir que essas mesmas práticas se estendam a colaboradores(as), prestadores(as) de serviço e parceiros, usando contratos e políticas consistentes com o que já foi estabelecido entre os fundadores.",
+        },
+    },
+    {
+        "title": "Pergunta 8 – Controles mínimos de uso de recursos (caixa e gastos)",
+        "question": "Como são controlados hoje os recursos financeiros utilizados na fase de ideação (gastos com domínio, protótipo, viagens, ferramentas etc.)?",
+        "options": {
+            "a": "Não fazemos nenhum controle; cada um paga um pouco e confiamos na memória.",
+            "b": "Temos um controle esporádico (planilha ou anotações), mas sem revisão periódica pelos sócios.",
+            "c": "Mantemos um controle simples de entradas e saídas (ex.: planilha de caixa) revisado pelos sócios de tempos em tempos.",
+            "d": "Mantemos controle de caixa organizado, revisado periodicamente, com projeções de curto prazo (ex.: próximos 3–6 meses).",
+        },
+        "recommendations": {
+            "a": "Ausência de controle financeiro, mesmo em pequenas quantias, dificulta decisões e gera desconfiança. Um próximo passo simples é criar uma planilha de caixa compartilhada, registrar todas as entradas e saídas e definir uma pessoa responsável por atualizar esses dados regularmente.",
+            "b": "Vocês já tentam controlar os gastos, mas de forma irregular. Vale padronizar o uso de uma única planilha ou ferramenta, centralizando as informações e combinando uma revisão periódica (por exemplo, quinzenal ou mensal) em reunião de sócios para analisar o que está sendo gasto.",
+            "c": "O controle simples de caixa e a revisão periódica já colocam vocês em um bom patamar de governança financeira para a ideação. Para avançar, adicionem projeções de curto prazo (próximos 3 a 6 meses), estimando custos recorrentes e possíveis investimentos, para evitar surpresas.",
+            "d": "Vocês já têm um controle de caixa organizado, com revisões e projeções, o que é excelente para a fase de ideação. Mantenham essa disciplina e, à medida que a complexidade aumentar, considerem evoluir para ferramentas mais robustas ou integrar esse controle a um planejamento financeiro mais amplo.",
+        },
+    },
+]
+
 
 def normalize_monthly_series(
     state: st.session_state, product_index: int, horizon_years: int
@@ -979,6 +1110,7 @@ def compute_simples_tax(revenue: float, annex: str) -> Tuple[float, float]:
 def init_state():
     """Initialize session state variables if they do not exist."""
     defaults = {
+        "module": "Planejamento financeiro",
         "step": 1,
         "project_name": "",
         "currency": "BRL",
@@ -1000,6 +1132,7 @@ def init_state():
         # deductions used in the effective tax calculation. Default: no tax.
         "calculate_tax": False,
         "tax_annex": "I",
+        "governance_report": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -1909,24 +2042,114 @@ def wizard_step7():
             safe_rerun()
 
 
+def show_governance_assessment() -> None:
+    """Render the corporate governance self-assessment for startups."""
+
+    st.header("Avaliação de governança corporativa (startups)")
+    st.markdown(
+        """
+        Responda às perguntas abaixo para avaliar o nível de governança entre os fundadores. As
+        questões cobrem alinhamento, contribuições, propriedade intelectual e regras societárias.
+        Ao final, um mini relatório traz recomendações práticas para cada resposta e um resumo
+        geral do estágio de governança.
+        """
+    )
+
+    existing_report = st.session_state.get("governance_report") or {}
+    with st.form("governance_form"):
+        responses: Dict[int, Optional[str]] = {}
+        for idx, question in enumerate(GOVERNANCE_QUESTIONS, start=1):
+            st.markdown(f"### {question['title']}")
+            option_keys = list(question["options"].keys())
+            previous = existing_report.get(idx)
+            choice = st.radio(
+                question["question"],
+                options=option_keys,
+                index=(option_keys.index(previous) if previous in option_keys else None),
+                format_func=lambda opt, q=question: f"{opt}) {q['options'][opt]}",
+                key=f"governance_q_{idx}",
+            )
+            responses[idx] = choice
+
+        submitted = st.form_submit_button("Gerar relatório")
+
+    if submitted:
+        if any(value is None for value in responses.values()):
+            st.session_state.governance_report = None
+            st.warning("Responda todas as perguntas antes de gerar o relatório.")
+            return
+        st.session_state.governance_report = responses
+
+    report = st.session_state.get("governance_report") or {}
+    if report:
+        st.subheader("Mini relatório de recomendações")
+        ab_count = 0
+        cd_count = 0
+        for idx, question in enumerate(GOVERNANCE_QUESTIONS, start=1):
+            answer_key = report.get(idx)
+            if not answer_key:
+                continue
+            if answer_key in ["a", "b"]:
+                ab_count += 1
+            else:
+                cd_count += 1
+            answer_text = question["options"].get(answer_key, "")
+            recommendation = question["recommendations"].get(answer_key, "")
+            st.markdown(f"**{question['title']}**")
+            st.markdown(f"{question['question']}")
+            st.markdown(f"- **Resposta:** {answer_key}) {answer_text}")
+            st.markdown(f"- **Recomendação:** {recommendation}")
+            st.divider()
+
+        st.subheader("Resumo geral")
+        st.markdown(f"Respostas em **a/b**: {ab_count} · Respostas em **c/d**: {cd_count}")
+        if ab_count > cd_count:
+            st.info(
+                "Sua governança está em estágio inicial. Priorize o alinhamento entre sócios, a formalização de combinados e a organização mínima de controles financeiros e societários."
+            )
+        else:
+            st.success(
+                "Vocês já têm boas práticas de governança para a fase de ideação. Mantenham a revisão periódica dos acordos e preparem-se para formalizá-los ainda mais à medida que a startup evolui."
+            )
+
+
 def main():
     st.set_page_config(page_title="Assistente Financeiro", page_icon="💰", layout="centered")
     init_state()
-    step = st.session_state.step
-    if step == 1:
-        wizard_step1()
-    elif step == 2:
-        wizard_step2()
-    elif step == 3:
-        wizard_step3()
-    elif step == 4:
-        wizard_step4()
-    elif step == 5:
-        wizard_step5()
-    elif step == 6:
-        wizard_step6()
-    elif step == 7:
-        wizard_step7()
+    module_options = [
+        "Planejamento financeiro",
+        "Avaliação de governança corporativa (startups)",
+    ]
+    selected_module = st.radio(
+        "Escolha o fluxo que deseja utilizar:",
+        options=module_options,
+        index=module_options.index(st.session_state.get("module", module_options[0])),
+        horizontal=True,
+    )
+    if selected_module != st.session_state.module:
+        st.session_state.module = selected_module
+        if selected_module == "Planejamento financeiro":
+            st.session_state.step = st.session_state.get("step", 1) or 1
+        safe_rerun()
+
+    if st.session_state.module == "Planejamento financeiro":
+        step = st.session_state.step
+        if step == 1:
+            wizard_step1()
+        elif step == 2:
+            wizard_step2()
+        elif step == 3:
+            wizard_step3()
+        elif step == 4:
+            wizard_step4()
+        elif step == 5:
+            wizard_step5()
+        elif step == 6:
+            wizard_step6()
+        elif step == 7:
+            wizard_step7()
+    else:
+        show_governance_assessment()
 
 
 if __name__ == "__main__":
