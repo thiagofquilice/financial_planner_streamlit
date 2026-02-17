@@ -2022,14 +2022,15 @@ def wizard_step7():
         ["Resultados", "Análises", "Utilitários"],
         index=0,
         horizontal=True,
+        key="step7_section",
     )
 
     if section == "Resultados":
-        selected = st.radio("Selecione o resultado", result_options, index=0, vertical=True)
+        selected = st.radio("Selecione o resultado", result_options, index=0, key="step7_result")
     elif section == "Análises":
-        selected = st.radio("Selecione a análise", analysis_options, index=0, vertical=True)
+        selected = st.radio("Selecione a análise", analysis_options, index=0, key="step7_analysis")
     else:
-        selected = st.radio("Selecione o utilitário", utility_options, index=0, vertical=True)
+        selected = st.radio("Selecione o utilitário", utility_options, index=0, key="step7_utility")
 
     currency_fmt = {
         "Receita": lambda x: format_currency_br(x),
