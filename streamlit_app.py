@@ -1769,8 +1769,15 @@ def wizard_step3():
     """Step 3: Variable spending split into costs and expenses per product."""
 
     def _coerce_float(x):
+        if x is None:
+            return 0.0
+        if isinstance(x, str):
+            x = x.strip().replace(".", "").replace(",", ".") if "," in x and "." in x else x.replace(",", ".")
         try:
-            return float(x)
+            value = float(x)
+            if pd.isna(value):
+                return 0.0
+            return value
         except Exception:
             return 0.0
 
@@ -1778,46 +1785,36 @@ def wizard_step3():
         return "" if x is None else str(x)
 
     render_step_header(3, "Gastos Variáveis", "Informe os custos variáveis e despesas variáveis por item da etapa 2.")
-    # Explanation for direct costs
     st.markdown(
         """
         Nesta etapa você relaciona os **custos diretamente associados** a cada produto ou serviço. Esses
-        custos variam proporcionalmente com a quantidade produzida ou vendida.  
+        custos variam proporcionalmente com a quantidade produzida ou vendida.
 
         *Para um negócio industrial*, isso inclui matérias‑primas, componentes e mão‑de‑obra direta.
-        Por exemplo, para fabricar 1 cadeira você usa madeira e 2 horas de carpinteiro.  
+        Por exemplo, para fabricar 1 cadeira você usa madeira e 2 horas de carpinteiro.
 
         *Para um comércio*, considere o **custo de aquisição** das mercadorias revendidas (custo de
-        reposição). Se você revende camisetas, o custo unitário é o preço pago ao fornecedor.  
+        reposição). Se você revende camisetas, o custo unitário é o preço pago ao fornecedor.
 
         *Para empresas de serviços*, o custo direto geralmente é o valor pago a colaboradores ou
-        prestadores que executam o serviço (honorários, comissões).  
+        prestadores que executam o serviço (honorários, comissões).
 
         Você também pode adicionar **despesas variáveis** por produto – valores que dependem da
-        quantidade vendida, como taxas de cartão, frete por unidade ou comissões de venda.  
+        quantidade vendida, como taxas de cartão, frete por unidade ou comissões de venda.
 
         Para cada item da etapa anterior, preencha dois quadros:
 
         * **Quadro de Custos Variáveis**
         * **Quadro de Despesas Variáveis**
-
-        Cada quadro possui as colunas: **Item**, **Quantidade unitária**, **Valor unitário** e
-        **Valor total**. Abaixo de cada quadro, o sistema apresenta o **somatório total**.
-
-        Nas despesas variáveis, informe também a classificação de cada item em
-        **Operacional** ou **Vendas**.
         """
     )
-    # Loop through each item defined in Step 2
+
     for prod_index, product in enumerate(st.session_state.revenue):
         product_name = product.get("name") or f"Produto/Serviço {prod_index + 1}"
         st.subheader(f"Seção do Item {prod_index + 1}: {product_name}")
 
-        # Ensure a list of cost items exists for this product index
         if prod_index not in st.session_state.costs:
             st.session_state.costs[prod_index] = []
-
-        # Ensure a list of variable expenses exists for this product index
         if prod_index not in st.session_state.variable_expenses:
             st.session_state.variable_expenses[prod_index] = []
 
@@ -1838,8 +1835,6 @@ def wizard_step3():
             if df_costs.empty:
                 df_costs = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário"])
 
-            df_costs["Valor total"] = df_costs["Quantidade unitária"] * df_costs["Valor unitário"]
-
             edited_costs = st.data_editor(
                 df_costs,
                 use_container_width=True,
@@ -1849,14 +1844,22 @@ def wizard_step3():
                     "Item": st.column_config.TextColumn("Item"),
                     "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
                     "Valor unitário": st.column_config.NumberColumn("Valor unitário", min_value=0.0, step=0.01, format="R$ %.2f"),
-                    "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f", disabled=True),
                 },
-                disabled=["Valor total"],
             )
 
-            edited_costs["Quantidade unitária"] = edited_costs["Quantidade unitária"].apply(_coerce_float)
-            edited_costs["Valor unitário"] = edited_costs["Valor unitário"].apply(_coerce_float)
+            edited_costs["Quantidade unitária"] = pd.to_numeric(edited_costs["Quantidade unitária"], errors="coerce").fillna(0.0)
+            edited_costs["Valor unitário"] = pd.to_numeric(edited_costs["Valor unitário"], errors="coerce").fillna(0.0)
             edited_costs["Valor total"] = edited_costs["Quantidade unitária"] * edited_costs["Valor unitário"]
+
+            st.dataframe(
+                edited_costs[["Item", "Quantidade unitária", "Valor unitário", "Valor total"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f"),
+                    "Valor unitário": st.column_config.NumberColumn("Valor unitário", format="R$ %.2f"),
+                },
+            )
 
             total_costs = float(edited_costs["Valor total"].sum()) if not edited_costs.empty else 0.0
             st.markdown(f"**Total de Custos Variáveis do Item {product_name}: {format_currency_br(total_costs)}**")
@@ -1893,12 +1896,7 @@ def wizard_step3():
             if df_exp.empty:
                 df_exp = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário", "Classificação"])
 
-            if "Classificação" in df_exp.columns:
-                df_exp["Classificação"] = df_exp["Classificação"].apply(
-                    lambda x: "Vendas" if str(x) == "Vendas" else "Operacional"
-                )
-
-            df_exp["Valor total"] = df_exp["Quantidade unitária"] * df_exp["Valor unitário"]
+            df_exp["Classificação"] = df_exp["Classificação"].apply(lambda x: "Vendas" if str(x) == "Vendas" else "Operacional")
 
             edited_exp = st.data_editor(
                 df_exp,
@@ -1910,29 +1908,27 @@ def wizard_step3():
                     "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
                     "Valor unitário": st.column_config.NumberColumn("Valor unitário", min_value=0.0, step=0.01, format="R$ %.2f"),
                     "Classificação": st.column_config.SelectboxColumn("Classificação", options=["Operacional", "Vendas"]),
-                    "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f", disabled=True),
                 },
-                disabled=["Valor total"],
             )
 
-            edited_exp["Quantidade unitária"] = edited_exp["Quantidade unitária"].apply(_coerce_float)
-            edited_exp["Valor unitário"] = edited_exp["Valor unitário"].apply(_coerce_float)
-            edited_exp["Classificação"] = edited_exp["Classificação"].apply(
-                lambda x: "Vendas" if str(x) == "Vendas" else "Operacional"
-            )
+            edited_exp["Quantidade unitária"] = pd.to_numeric(edited_exp["Quantidade unitária"], errors="coerce").fillna(0.0)
+            edited_exp["Valor unitário"] = pd.to_numeric(edited_exp["Valor unitário"], errors="coerce").fillna(0.0)
+            edited_exp["Classificação"] = edited_exp["Classificação"].apply(lambda x: "Vendas" if str(x) == "Vendas" else "Operacional")
             edited_exp["Valor total"] = edited_exp["Quantidade unitária"] * edited_exp["Valor unitário"]
 
+            st.dataframe(
+                edited_exp[["Item", "Quantidade unitária", "Valor unitário", "Classificação", "Valor total"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f"),
+                    "Valor unitário": st.column_config.NumberColumn("Valor unitário", format="R$ %.2f"),
+                },
+            )
+
             total_exp = float(edited_exp["Valor total"].sum()) if not edited_exp.empty else 0.0
-            subtotal_oper = (
-                float(edited_exp.loc[edited_exp["Classificação"] == "Operacional", "Valor total"].sum())
-                if not edited_exp.empty
-                else 0.0
-            )
-            subtotal_vendas = (
-                float(edited_exp.loc[edited_exp["Classificação"] == "Vendas", "Valor total"].sum())
-                if not edited_exp.empty
-                else 0.0
-            )
+            subtotal_oper = float(edited_exp.loc[edited_exp["Classificação"] == "Operacional", "Valor total"].sum()) if not edited_exp.empty else 0.0
+            subtotal_vendas = float(edited_exp.loc[edited_exp["Classificação"] == "Vendas", "Valor total"].sum()) if not edited_exp.empty else 0.0
 
             st.markdown(f"**Total de Despesas Variáveis do Item {product_name}: {format_currency_br(total_exp)}**")
             st.markdown(f"Subtotal Operacional: **{format_currency_br(subtotal_oper)}**")
@@ -1954,14 +1950,13 @@ def wizard_step3():
             ]
 
         st.divider()
-    # Navigation buttons
     col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("◂ Voltar", key="back3"):
+        if st.button("◂ Voltar", key="back3"):
             st.session_state.step = 2
             safe_rerun()
     with col2:
-        if st.button("Próximo ▸", key="next3"):
+        if st.button("Próximo ▸", key="next3"):
             st.session_state.step = 4
             safe_rerun()
 
