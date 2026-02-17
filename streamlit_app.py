@@ -1182,7 +1182,7 @@ def render_home_screen() -> None:
         st.markdown("### 📈 Planejamento financeiro")
         st.markdown(
             """
-            Ideal para estruturar projeções de receita, custos, investimentos e viabilidade.
+            Fluxo para estruturar projeções de receita, custos, investimentos e viabilidade.
 
             **Você vai encontrar:**
             - etapas guiadas de cadastro do negócio;
@@ -1197,7 +1197,7 @@ def render_home_screen() -> None:
         st.markdown("### 🧭 Avaliação de governança")
         st.markdown(
             """
-            Ideal para avaliar a maturidade dos acordos entre sócios na fase inicial da startup.
+            Fluxo para avaliar a maturidade dos acordos entre sócios na fase inicial da startup.
 
             **Você vai encontrar:**
             - perguntas objetivas sobre alinhamento e regras societárias;
