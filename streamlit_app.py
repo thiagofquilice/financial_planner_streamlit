@@ -1793,109 +1793,118 @@ def wizard_step3():
     # Loop through each product/service defined in revenue step
     for prod_index, product in enumerate(st.session_state.revenue):
         product_name = product.get("name") or f"Produto/Serviço {prod_index + 1}"
-        st.subheader(f"Custos Variáveis de {product_name}")
+        st.subheader(f"Gastos Variáveis de {product_name}")
+        costs_col, expenses_col = st.columns(2)
+
         # Ensure a list of cost items exists for this product index
         if prod_index not in st.session_state.costs:
             st.session_state.costs[prod_index] = []
-        # Render each cost item for this product
-        for i, item in enumerate(st.session_state.costs[prod_index]):
-            with st.expander(f"Item de custo {i + 1}", expanded=True):
-                name = st.text_input(
-                    "Nome do Item", value=item.get("name", ""), key=f"cost_name_{prod_index}_{i}"
-                )
-                qty = st.number_input(
-                    "Quantidade",
-                    min_value=0.0,
-                    value=float(item.get("qty", 0.0)),
-                    step=1.0,
-                    key=f"cost_qty_{prod_index}_{i}",
-                )
-                unit = st.number_input(
-                    "Valor unitário (R$)",
-                    min_value=0.0,
-                    value=float(item.get("unit", 0.0)),
-                    format="%.2f",
-                    key=f"cost_unit_{prod_index}_{i}",
-                )
-                prazo_pct = st.number_input(
-                    "% a prazo",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=float(item.get("prazo_pct", item.get("term", 0.0))),
-                    key=f"cost_prazo_pct_{prod_index}_{i}",
-                )
-                prazo_parcelas = st.number_input(
-                    "Parcelamento médio (nº de parcelas)",
-                    min_value=1,
-                    max_value=60,
-                    value=int(item.get("prazo_parcelas", 1) or 1),
-                    key=f"cost_prazo_parcelas_{prod_index}_{i}",
-                )
-                # Update the cost item in session state
-                st.session_state.costs[prod_index][i] = {
-                    "name": name,
-                    "qty": qty,
-                    "unit": unit,
-                    "prazo_pct": prazo_pct,
-                    "prazo_parcelas": int(prazo_parcelas),
-                }
-        # Button to add a cost item for this product
-        if st.button(f"+ Adicionar custo para {product_name}", key=f"add_cost_{prod_index}"):
-            st.session_state.costs[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
-            safe_rerun()
-        # Variable expenses section for this product
-        st.markdown(f"### Despesas Variáveis de {product_name}")
+
         # Ensure a list of variable expenses exists for this product index
         if prod_index not in st.session_state.variable_expenses:
             st.session_state.variable_expenses[prod_index] = []
-        # Render each variable expense item using the same structure as cost items
-        for vi, vitem in enumerate(st.session_state.variable_expenses[prod_index]):
-            with st.expander(f"Despesa variável {vi + 1}", expanded=True):
-                name = st.text_input(
-                    "Nome do Item",
-                    value=vitem.get("name", ""),
-                    key=f"var_name_{prod_index}_{vi}",
-                )
-                qty = st.number_input(
-                    "Quantidade",
-                    min_value=0.0,
-                    value=float(vitem.get("qty", 0.0)),
-                    step=1.0,
-                    key=f"var_qty_{prod_index}_{vi}",
-                )
-                unit = st.number_input(
-                    "Valor unitário (R$)",
-                    min_value=0.0,
-                    value=float(vitem.get("unit", 0.0)),
-                    format="%.2f",
-                    key=f"var_unit_{prod_index}_{vi}",
-                )
-                prazo_pct = st.number_input(
-                    "% a prazo",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=float(vitem.get("prazo_pct", vitem.get("term", 0.0))),
-                    key=f"var_prazo_pct_{prod_index}_{vi}",
-                )
-                prazo_parcelas = st.number_input(
-                    "Parcelamento médio (nº de parcelas)",
-                    min_value=1,
-                    max_value=60,
-                    value=int(vitem.get("prazo_parcelas", 1) or 1),
-                    key=f"var_prazo_parcelas_{prod_index}_{vi}",
-                )
-                # Update variable expense in session state
-                st.session_state.variable_expenses[prod_index][vi] = {
-                    "name": name,
-                    "qty": qty,
-                    "unit": unit,
-                    "prazo_pct": prazo_pct,
-                    "prazo_parcelas": int(prazo_parcelas),
-                }
-        # Button to add variable expense for this product
-        if st.button(f"+ Adicionar despesa variável para {product_name}", key=f"add_var_exp_{prod_index}"):
-            st.session_state.variable_expenses[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
-            safe_rerun()
+
+        with costs_col:
+            with st.container(border=True):
+                st.markdown("### Custos")
+                # Render each cost item for this product
+                for i, item in enumerate(st.session_state.costs[prod_index]):
+                    with st.expander(f"Item de custo {i + 1}", expanded=True):
+                        name = st.text_input(
+                            "Nome do Item", value=item.get("name", ""), key=f"cost_name_{prod_index}_{i}"
+                        )
+                        qty = st.number_input(
+                            "Quantidade",
+                            min_value=0.0,
+                            value=float(item.get("qty", 0.0)),
+                            step=1.0,
+                            key=f"cost_qty_{prod_index}_{i}",
+                        )
+                        unit = st.number_input(
+                            "Valor unitário (R$)",
+                            min_value=0.0,
+                            value=float(item.get("unit", 0.0)),
+                            format="%.2f",
+                            key=f"cost_unit_{prod_index}_{i}",
+                        )
+                        prazo_pct = st.number_input(
+                            "% a prazo",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=float(item.get("prazo_pct", item.get("term", 0.0))),
+                            key=f"cost_prazo_pct_{prod_index}_{i}",
+                        )
+                        prazo_parcelas = st.number_input(
+                            "Parcelamento médio (nº de parcelas)",
+                            min_value=1,
+                            max_value=60,
+                            value=int(item.get("prazo_parcelas", 1) or 1),
+                            key=f"cost_prazo_parcelas_{prod_index}_{i}",
+                        )
+                        st.session_state.costs[prod_index][i] = {
+                            "name": name,
+                            "qty": qty,
+                            "unit": unit,
+                            "prazo_pct": prazo_pct,
+                            "prazo_parcelas": int(prazo_parcelas),
+                        }
+
+                if st.button("+ Adicionar custo", key=f"add_cost_{prod_index}"):
+                    st.session_state.costs[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
+                    safe_rerun()
+
+        with expenses_col:
+            with st.container(border=True):
+                st.markdown("### Despesas")
+                # Render each variable expense item using the same structure as cost items
+                for vi, vitem in enumerate(st.session_state.variable_expenses[prod_index]):
+                    with st.expander(f"Despesa variável {vi + 1}", expanded=True):
+                        name = st.text_input(
+                            "Nome do Item",
+                            value=vitem.get("name", ""),
+                            key=f"var_name_{prod_index}_{vi}",
+                        )
+                        qty = st.number_input(
+                            "Quantidade",
+                            min_value=0.0,
+                            value=float(vitem.get("qty", 0.0)),
+                            step=1.0,
+                            key=f"var_qty_{prod_index}_{vi}",
+                        )
+                        unit = st.number_input(
+                            "Valor unitário (R$)",
+                            min_value=0.0,
+                            value=float(vitem.get("unit", 0.0)),
+                            format="%.2f",
+                            key=f"var_unit_{prod_index}_{vi}",
+                        )
+                        prazo_pct = st.number_input(
+                            "% a prazo",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=float(vitem.get("prazo_pct", vitem.get("term", 0.0))),
+                            key=f"var_prazo_pct_{prod_index}_{vi}",
+                        )
+                        prazo_parcelas = st.number_input(
+                            "Parcelamento médio (nº de parcelas)",
+                            min_value=1,
+                            max_value=60,
+                            value=int(vitem.get("prazo_parcelas", 1) or 1),
+                            key=f"var_prazo_parcelas_{prod_index}_{vi}",
+                        )
+                        st.session_state.variable_expenses[prod_index][vi] = {
+                            "name": name,
+                            "qty": qty,
+                            "unit": unit,
+                            "prazo_pct": prazo_pct,
+                            "prazo_parcelas": int(prazo_parcelas),
+                        }
+
+                if st.button("+ Adicionar despesa", key=f"add_var_exp_{prod_index}"):
+                    st.session_state.variable_expenses[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
+                    safe_rerun()
+
+        st.divider()
     # Navigation buttons
     col1, col2 = st.columns([1, 1])
     with col1:
