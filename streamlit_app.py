@@ -1786,8 +1786,16 @@ def wizard_step3():
         Você também pode adicionar **despesas variáveis** por produto – valores que dependem da
         quantidade vendida, como taxas de cartão, frete por unidade ou comissões de venda.  
 
-        Preencha para cada item: nome, quantidade (por ciclo de produção), valor unitário, % a prazo
-        e parcelamento médio. Estes dados são usados para calcular o custo direto unitário e o fluxo de caixa.
+        Para cada produto/serviço da etapa anterior, preencha dois quadros:
+
+        * **Quadro de Custos Variáveis**
+        * **Quadro de Despesas Variáveis**
+
+        Cada quadro possui as colunas: **Item**, **Quantidade unitária**, **Valor unitário** e
+        **Valor total**. Abaixo de cada quadro, o sistema apresenta o **somatório total**.
+
+        Nas despesas variáveis, informe também a classificação de cada item em
+        **Operacional** ou **Vendas**.
         """
     )
     # Loop through each product/service defined in revenue step
@@ -1806,15 +1814,16 @@ def wizard_step3():
 
         with costs_col:
             with st.container(border=True):
-                st.markdown("### Custos")
+                st.markdown("### Quadro de Custos Variáveis")
+                st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total")
                 # Render each cost item for this product
                 for i, item in enumerate(st.session_state.costs[prod_index]):
                     with st.expander(f"Item de custo {i + 1}", expanded=True):
                         name = st.text_input(
-                            "Nome do Item", value=item.get("name", ""), key=f"cost_name_{prod_index}_{i}"
+                            "Item", value=item.get("name", ""), key=f"cost_name_{prod_index}_{i}"
                         )
                         qty = st.number_input(
-                            "Quantidade",
+                            "Quantidade unitária",
                             min_value=0.0,
                             value=float(item.get("qty", 0.0)),
                             step=1.0,
@@ -1827,27 +1836,26 @@ def wizard_step3():
                             format="%.2f",
                             key=f"cost_unit_{prod_index}_{i}",
                         )
-                        prazo_pct = st.number_input(
-                            "% a prazo",
-                            min_value=0.0,
-                            max_value=100.0,
-                            value=float(item.get("prazo_pct", item.get("term", 0.0))),
-                            key=f"cost_prazo_pct_{prod_index}_{i}",
-                        )
-                        prazo_parcelas = st.number_input(
-                            "Parcelamento médio (nº de parcelas)",
-                            min_value=1,
-                            max_value=60,
-                            value=int(item.get("prazo_parcelas", 1) or 1),
-                            key=f"cost_prazo_parcelas_{prod_index}_{i}",
+                        total_item = float(qty) * float(unit)
+                        st.text_input(
+                            "Valor total",
+                            value=format_currency_br(total_item),
+                            key=f"cost_total_{prod_index}_{i}",
+                            disabled=True,
                         )
                         st.session_state.costs[prod_index][i] = {
                             "name": name,
                             "qty": qty,
                             "unit": unit,
-                            "prazo_pct": prazo_pct,
-                            "prazo_parcelas": int(prazo_parcelas),
+                            "prazo_pct": float(item.get("prazo_pct", item.get("term", 0.0)) or 0.0),
+                            "prazo_parcelas": int(item.get("prazo_parcelas", 1) or 1),
                         }
+
+                total_costs = sum(
+                    float(c.get("qty", 0.0) or 0.0) * float(c.get("unit", 0.0) or 0.0)
+                    for c in st.session_state.costs[prod_index]
+                )
+                st.markdown(f"**Somatório do quadro:** {format_currency_br(total_costs)}")
 
                 if st.button("+ Adicionar custo", key=f"add_cost_{prod_index}"):
                     st.session_state.costs[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
@@ -1855,17 +1863,18 @@ def wizard_step3():
 
         with expenses_col:
             with st.container(border=True):
-                st.markdown("### Despesas")
+                st.markdown("### Quadro de Despesas Variáveis")
+                st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total")
                 # Render each variable expense item using the same structure as cost items
                 for vi, vitem in enumerate(st.session_state.variable_expenses[prod_index]):
                     with st.expander(f"Despesa variável {vi + 1}", expanded=True):
                         name = st.text_input(
-                            "Nome do Item",
+                            "Item",
                             value=vitem.get("name", ""),
                             key=f"var_name_{prod_index}_{vi}",
                         )
                         qty = st.number_input(
-                            "Quantidade",
+                            "Quantidade unitária",
                             min_value=0.0,
                             value=float(vitem.get("qty", 0.0)),
                             step=1.0,
@@ -1878,30 +1887,47 @@ def wizard_step3():
                             format="%.2f",
                             key=f"var_unit_{prod_index}_{vi}",
                         )
-                        prazo_pct = st.number_input(
-                            "% a prazo",
-                            min_value=0.0,
-                            max_value=100.0,
-                            value=float(vitem.get("prazo_pct", vitem.get("term", 0.0))),
-                            key=f"var_prazo_pct_{prod_index}_{vi}",
+                        classification = st.selectbox(
+                            "Classificação",
+                            options=["Operacional", "Vendas"],
+                            index=0
+                            if str(vitem.get("classification", "Operacional")) == "Operacional"
+                            else 1,
+                            key=f"var_class_{prod_index}_{vi}",
                         )
-                        prazo_parcelas = st.number_input(
-                            "Parcelamento médio (nº de parcelas)",
-                            min_value=1,
-                            max_value=60,
-                            value=int(vitem.get("prazo_parcelas", 1) or 1),
-                            key=f"var_prazo_parcelas_{prod_index}_{vi}",
+                        total_item = float(qty) * float(unit)
+                        st.text_input(
+                            "Valor total",
+                            value=format_currency_br(total_item),
+                            key=f"var_total_{prod_index}_{vi}",
+                            disabled=True,
                         )
                         st.session_state.variable_expenses[prod_index][vi] = {
                             "name": name,
                             "qty": qty,
                             "unit": unit,
-                            "prazo_pct": prazo_pct,
-                            "prazo_parcelas": int(prazo_parcelas),
+                            "classification": classification,
+                            "prazo_pct": float(vitem.get("prazo_pct", vitem.get("term", 0.0)) or 0.0),
+                            "prazo_parcelas": int(vitem.get("prazo_parcelas", 1) or 1),
                         }
 
+                total_expenses = sum(
+                    float(v.get("qty", 0.0) or 0.0) * float(v.get("unit", 0.0) or 0.0)
+                    for v in st.session_state.variable_expenses[prod_index]
+                )
+                st.markdown(f"**Somatório do quadro:** {format_currency_br(total_expenses)}")
+
                 if st.button("+ Adicionar despesa", key=f"add_var_exp_{prod_index}"):
-                    st.session_state.variable_expenses[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
+                    st.session_state.variable_expenses[prod_index].append(
+                        {
+                            "name": "",
+                            "qty": 0.0,
+                            "unit": 0.0,
+                            "classification": "Operacional",
+                            "prazo_pct": 0.0,
+                            "prazo_parcelas": 1,
+                        }
+                    )
                     safe_rerun()
 
         st.divider()
