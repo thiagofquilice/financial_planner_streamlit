@@ -1204,8 +1204,7 @@ def render_step_index() -> None:
         "3. Gastos Variáveis",
         "4. Gastos Fixos",
         "5. Investimentos",
-        "6. Estrutura de Capital",
-        "7. Resultados e Análises",
+        "6. Resultados e Análises",
     ]
     cols = st.columns(len(step_labels))
     for idx, label in enumerate(step_labels):
@@ -1223,7 +1222,6 @@ def render_planning_sidebar() -> None:
         "Gastos Variáveis",
         "Gastos Fixos",
         "Investimentos",
-        "Financiamento",
         "Resultados",
     ]
     current_step = int(st.session_state.get("step", 1) or 1)
@@ -1273,8 +1271,7 @@ def render_step_header(step_number: int, title: str, description: str) -> None:
         3: "#F59E0B",
         4: "#EF4444",
         5: "#8B5CF6",
-        6: "#14B8A6",
-        7: "#6366F1",
+        6: "#6366F1",
     }
     color = step_colors.get(step_number, "#334155")
     st.markdown(
@@ -1365,7 +1362,6 @@ def wizard_step1():
             "fixed_expenses": st.session_state.get("fixed_expenses", {}),
             "fixed_costs": st.session_state.get("fixed_costs", {}),
             "investments": st.session_state.get("investments", []),
-            "financing": st.session_state.get("financing", {}),
             "calculate_tax": st.session_state.get("calculate_tax", False),
             "tax_annex": st.session_state.get("tax_annex", "I"),
         }
@@ -1876,7 +1872,7 @@ def wizard_step6():
 
 def wizard_step7():
     """Step 7: Results and report generation."""
-    render_step_header(7, "Resultados e Análises", "Analise os indicadores de viabilidade e os gastos projetados.")
+    render_step_header(6, "Resultados e Análises", "Analise os indicadores de viabilidade e os gastos projetados.")
     st.markdown("Acompanhe as análises em uma lista vertical e visualize cada bloco de resultados individualmente.")
 
     st.subheader("Configurações de Cenário e Taxa de Desconto")
@@ -1912,7 +1908,7 @@ def wizard_step7():
     payback, discounted_payback = compute_payback(cashflows, discount_rate)
     summary = compute_summary(st.session_state)
     be = compute_break_even(st.session_state, variation_factor)
-    df_month, df_ann = compute_monthly_projections(st.session_state, variation_factor)
+    df_month, df_ann = compute_monthly_details(st.session_state, variation_factor)
 
     metrics_table = pd.DataFrame(
         {
@@ -1931,7 +1927,7 @@ def wizard_step7():
     if be:
         df_be_prod = pd.DataFrame(be["product_breakdown"]).rename(
             columns={
-                "product": "Produto/Serviço",
+                "name": "Produto/Serviço",
                 "share": "Participação (%)",
                 "revenue_be": "Receita de PE (R$)",
                 "qty_be": "Quantidade de PE",
@@ -1945,14 +1941,14 @@ def wizard_step7():
         df_be_prod["Participação (%)"] = df_be_prod["Participação (%)"] * 100.0
 
     analysis_options = [
-        "1) Gastos e Resultado (DRE)",
-        "2) Fluxo de Caixa",
-        "3) Viabilidade",
-        "4) Resumo Gerencial",
-        "5) Ponto de Equilíbrio",
-        "6) Projeções Mensais",
-        "7) Projeções Anuais",
-        "8) Exportações",
+        "Resultados · DRE",
+        "Resultados · DFC",
+        "Análises · Viabilidade",
+        "Resumo Gerencial",
+        "Análises · Ponto de Equilíbrio",
+        "Resultados · Projeções Mensais",
+        "Resultados · Projeções Anuais",
+        "Exportações",
     ]
     selected = st.radio("Selecione a análise", analysis_options, index=0, vertical=True)
 
@@ -2095,7 +2091,7 @@ def wizard_step7():
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("◂ Voltar", key="back7"):
-            st.session_state.step = 6
+            st.session_state.step = 5
             safe_rerun()
     with col2:
         if st.button("Reiniciar", key="restart7"):
@@ -2208,9 +2204,7 @@ def main():
             wizard_step4()
         elif step == 5:
             wizard_step5()
-        elif step == 6:
-            wizard_step6()
-        elif step == 7:
+        elif step in (6, 7):
             wizard_step7()
     else:
         show_governance_assessment()
