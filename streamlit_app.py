@@ -1822,8 +1822,8 @@ def _coerce_str(x):
             st.session_state.variable_expenses[prod_index] = []
 
         with st.container(border=True):
-    st.markdown(f"### (A) Quadro de Custos Variáveis – do Item {product_name}")
-    st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total")
+            st.markdown(f"### (A) Quadro de Custos Variáveis – do Item {product_name}")
+            st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total")
 
     costs_list = st.session_state.costs.get(prod_index, [])
     df_costs = pd.DataFrame(
