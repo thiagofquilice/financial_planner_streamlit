@@ -1799,16 +1799,16 @@ def wizard_step3():
         """
     )
     # Helpers to keep numeric fields stable across reruns and JSON loads
-def _coerce_float(x):
-    try:
-        return float(x)
-    except Exception:
-        return 0.0
+    def _coerce_float(x):
+        try:
+            return float(x)
+        except Exception:
+            return 0.0
 
-def _coerce_str(x):
-    return "" if x is None else str(x)
+    def _coerce_str(x):
+        return "" if x is None else str(x)
 
-# Loop through each item defined in Step 2
+    # Loop through each item defined in Step 2
     for prod_index, product in enumerate(st.session_state.revenue):
         product_name = product.get("name") or f"Produto/Serviço {prod_index + 1}"
         st.subheader(f"Seção do Item {prod_index + 1}: {product_name}")
@@ -1825,151 +1825,151 @@ def _coerce_str(x):
             st.markdown(f"### (A) Quadro de Custos Variáveis – do Item {product_name}")
             st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total")
 
-    costs_list = st.session_state.costs.get(prod_index, [])
-    df_costs = pd.DataFrame(
-        [
-            {
-                "Item": _coerce_str(row.get("name")),
-                "Quantidade unitária": _coerce_float(row.get("qty")),
-                "Valor unitário": _coerce_float(row.get("unit")),
-            }
-            for row in costs_list
-        ]
-    )
-    if df_costs.empty:
-        df_costs = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário"])
-
-    df_costs["Valor total"] = df_costs["Quantidade unitária"] * df_costs["Valor unitário"]
-
-    edited_costs = st.data_editor(
-        df_costs,
-        use_container_width=True,
-        num_rows="fixed",
-        key=f"costs_table_{prod_index}",
-        column_config={
-            "Item": st.column_config.TextColumn("Item"),
-            "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
-            "Valor unitário": st.column_config.NumberColumn("Valor unitário", min_value=0.0, step=0.01, format="R$ %.2f"),
-            "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f", disabled=True),
-        },
-        disabled=["Valor total"],
-    )
-
-    edited_costs["Quantidade unitária"] = edited_costs["Quantidade unitária"].apply(_coerce_float)
-    edited_costs["Valor unitário"] = edited_costs["Valor unitário"].apply(_coerce_float)
-    edited_costs["Valor total"] = edited_costs["Quantidade unitária"] * edited_costs["Valor unitário"]
-
-    total_costs = float(edited_costs["Valor total"].sum()) if not edited_costs.empty else 0.0
-    st.markdown(f"**Total de Custos Variáveis do Item {product_name}: {format_currency_br(total_costs)}**")
-
-    # Persist in the same list-of-dicts format used elsewhere
-    st.session_state.costs[prod_index] = [
-        {
-            "name": _coerce_str(row["Item"]),
-            "qty": _coerce_float(row["Quantidade unitária"]),
-            "unit": _coerce_float(row["Valor unitário"]),
-            "prazo_pct": 0.0,
-            "prazo_parcelas": 1,
-        }
-        for _, row in edited_costs.iterrows()
-        if _coerce_str(row.get("Item", "")).strip() != ""
-        or _coerce_float(row.get("Quantidade unitária", 0.0)) != 0.0
-        or _coerce_float(row.get("Valor unitário", 0.0)) != 0.0
-    ]
-
-    if st.button("+ Adicionar custo", key=f"add_cost_{prod_index}"):
-        st.session_state.costs[prod_index].append(
-            {"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1}
+        costs_list = st.session_state.costs.get(prod_index, [])
+        df_costs = pd.DataFrame(
+            [
+                {
+                    "Item": _coerce_str(row.get("name")),
+                    "Quantidade unitária": _coerce_float(row.get("qty")),
+                    "Valor unitário": _coerce_float(row.get("unit")),
+                }
+                for row in costs_list
+            ]
         )
-        safe_rerun()
+        if df_costs.empty:
+            df_costs = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário"])
 
-with st.container(border=True):
-    st.markdown(f"### (B) Quadro de Despesas Variáveis – do Item {product_name}")
-    st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total · Classificação")
+        df_costs["Valor total"] = df_costs["Quantidade unitária"] * df_costs["Valor unitário"]
 
-    exp_list = st.session_state.variable_expenses.get(prod_index, [])
-    df_exp = pd.DataFrame(
-        [
+        edited_costs = st.data_editor(
+            df_costs,
+            use_container_width=True,
+            num_rows="fixed",
+            key=f"costs_table_{prod_index}",
+            column_config={
+                "Item": st.column_config.TextColumn("Item"),
+                "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
+                "Valor unitário": st.column_config.NumberColumn("Valor unitário", min_value=0.0, step=0.01, format="R$ %.2f"),
+                "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f", disabled=True),
+            },
+            disabled=["Valor total"],
+        )
+
+        edited_costs["Quantidade unitária"] = edited_costs["Quantidade unitária"].apply(_coerce_float)
+        edited_costs["Valor unitário"] = edited_costs["Valor unitário"].apply(_coerce_float)
+        edited_costs["Valor total"] = edited_costs["Quantidade unitária"] * edited_costs["Valor unitário"]
+
+        total_costs = float(edited_costs["Valor total"].sum()) if not edited_costs.empty else 0.0
+        st.markdown(f"**Total de Custos Variáveis do Item {product_name}: {format_currency_br(total_costs)}**")
+
+        # Persist in the same list-of-dicts format used elsewhere
+        st.session_state.costs[prod_index] = [
             {
-                "Item": _coerce_str(row.get("name")),
-                "Quantidade unitária": _coerce_float(row.get("qty")),
-                "Valor unitário": _coerce_float(row.get("unit")),
-                "Classificação": _coerce_str(row.get("classification") or "Operacional"),
-            }
-            for row in exp_list
-        ]
-    )
-    if df_exp.empty:
-        df_exp = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário", "Classificação"])
-
-    df_exp["Classificação"] = df_exp["Classificação"].apply(
-        lambda x: "Vendas" if str(x) == "Vendas" else "Operacional"
-    )
-    df_exp["Valor total"] = df_exp["Quantidade unitária"] * df_exp["Valor unitário"]
-
-    edited_exp = st.data_editor(
-        df_exp,
-        use_container_width=True,
-        num_rows="fixed",
-        key=f"var_exp_table_{prod_index}",
-        column_config={
-            "Item": st.column_config.TextColumn("Item"),
-            "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
-            "Valor unitário": st.column_config.NumberColumn("Valor unitário", min_value=0.0, step=0.01, format="R$ %.2f"),
-            "Classificação": st.column_config.SelectboxColumn("Classificação", options=["Operacional", "Vendas"]),
-            "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f", disabled=True),
-        },
-        disabled=["Valor total"],
-    )
-
-    edited_exp["Quantidade unitária"] = edited_exp["Quantidade unitária"].apply(_coerce_float)
-    edited_exp["Valor unitário"] = edited_exp["Valor unitário"].apply(_coerce_float)
-    edited_exp["Classificação"] = edited_exp["Classificação"].apply(
-        lambda x: "Vendas" if str(x) == "Vendas" else "Operacional"
-    )
-    edited_exp["Valor total"] = edited_exp["Quantidade unitária"] * edited_exp["Valor unitário"]
-
-    total_expenses = float(edited_exp["Valor total"].sum()) if not edited_exp.empty else 0.0
-    subtotal_operacional = float(
-        edited_exp.loc[edited_exp["Classificação"] == "Operacional", "Valor total"].sum()
-    ) if not edited_exp.empty else 0.0
-    subtotal_vendas = float(
-        edited_exp.loc[edited_exp["Classificação"] == "Vendas", "Valor total"].sum()
-    ) if not edited_exp.empty else 0.0
-
-    st.markdown(f"**Total de Despesas Variáveis do Item {product_name}: {format_currency_br(total_expenses)}**")
-    st.markdown(f"Subtotal Operacional: **{format_currency_br(subtotal_operacional)}**")
-    st.markdown(f"Subtotal Vendas: **{format_currency_br(subtotal_vendas)}**")
-
-    st.session_state.variable_expenses[prod_index] = [
-        {
-            "name": _coerce_str(row["Item"]),
-            "qty": _coerce_float(row["Quantidade unitária"]),
-            "unit": _coerce_float(row["Valor unitário"]),
-            "classification": _coerce_str(row["Classificação"]),
-            "prazo_pct": 0.0,
-            "prazo_parcelas": 1,
-        }
-        for _, row in edited_exp.iterrows()
-        if _coerce_str(row.get("Item", "")).strip() != ""
-        or _coerce_float(row.get("Quantidade unitária", 0.0)) != 0.0
-        or _coerce_float(row.get("Valor unitário", 0.0)) != 0.0
-    ]
-
-    if st.button("+ Adicionar despesa", key=f"add_var_exp_{prod_index}"):
-        st.session_state.variable_expenses[prod_index].append(
-            {
-                "name": "",
-                "qty": 0.0,
-                "unit": 0.0,
-                "classification": "Operacional",
+                "name": _coerce_str(row["Item"]),
+                "qty": _coerce_float(row["Quantidade unitária"]),
+                "unit": _coerce_float(row["Valor unitário"]),
                 "prazo_pct": 0.0,
                 "prazo_parcelas": 1,
             }
-        )
-        safe_rerun()
+            for _, row in edited_costs.iterrows()
+            if _coerce_str(row.get("Item", "")).strip() != ""
+            or _coerce_float(row.get("Quantidade unitária", 0.0)) != 0.0
+            or _coerce_float(row.get("Valor unitário", 0.0)) != 0.0
+        ]
 
-st.divider()
+        if st.button("+ Adicionar custo", key=f"add_cost_{prod_index}"):
+            st.session_state.costs[prod_index].append(
+                {"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1}
+            )
+            safe_rerun()
+
+        with st.container(border=True):
+            st.markdown(f"### (B) Quadro de Despesas Variáveis – do Item {product_name}")
+            st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total · Classificação")
+
+            exp_list = st.session_state.variable_expenses.get(prod_index, [])
+            df_exp = pd.DataFrame(
+                [
+                    {
+                        "Item": _coerce_str(row.get("name")),
+                        "Quantidade unitária": _coerce_float(row.get("qty")),
+                        "Valor unitário": _coerce_float(row.get("unit")),
+                        "Classificação": _coerce_str(row.get("classification") or "Operacional"),
+                    }
+                    for row in exp_list
+                ]
+            )
+            if df_exp.empty:
+                df_exp = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário", "Classificação"])
+
+            df_exp["Classificação"] = df_exp["Classificação"].apply(
+                lambda x: "Vendas" if str(x) == "Vendas" else "Operacional"
+            )
+            df_exp["Valor total"] = df_exp["Quantidade unitária"] * df_exp["Valor unitário"]
+
+            edited_exp = st.data_editor(
+                df_exp,
+                use_container_width=True,
+                num_rows="fixed",
+                key=f"var_exp_table_{prod_index}",
+                column_config={
+                    "Item": st.column_config.TextColumn("Item"),
+                    "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
+                    "Valor unitário": st.column_config.NumberColumn("Valor unitário", min_value=0.0, step=0.01, format="R$ %.2f"),
+                    "Classificação": st.column_config.SelectboxColumn("Classificação", options=["Operacional", "Vendas"]),
+                    "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f", disabled=True),
+                },
+                disabled=["Valor total"],
+            )
+
+            edited_exp["Quantidade unitária"] = edited_exp["Quantidade unitária"].apply(_coerce_float)
+            edited_exp["Valor unitário"] = edited_exp["Valor unitário"].apply(_coerce_float)
+            edited_exp["Classificação"] = edited_exp["Classificação"].apply(
+                lambda x: "Vendas" if str(x) == "Vendas" else "Operacional"
+            )
+            edited_exp["Valor total"] = edited_exp["Quantidade unitária"] * edited_exp["Valor unitário"]
+
+            total_expenses = float(edited_exp["Valor total"].sum()) if not edited_exp.empty else 0.0
+            subtotal_operacional = float(
+                edited_exp.loc[edited_exp["Classificação"] == "Operacional", "Valor total"].sum()
+            ) if not edited_exp.empty else 0.0
+            subtotal_vendas = float(
+                edited_exp.loc[edited_exp["Classificação"] == "Vendas", "Valor total"].sum()
+            ) if not edited_exp.empty else 0.0
+
+            st.markdown(f"**Total de Despesas Variáveis do Item {product_name}: {format_currency_br(total_expenses)}**")
+            st.markdown(f"Subtotal Operacional: **{format_currency_br(subtotal_operacional)}**")
+            st.markdown(f"Subtotal Vendas: **{format_currency_br(subtotal_vendas)}**")
+
+            st.session_state.variable_expenses[prod_index] = [
+                {
+                    "name": _coerce_str(row["Item"]),
+                    "qty": _coerce_float(row["Quantidade unitária"]),
+                    "unit": _coerce_float(row["Valor unitário"]),
+                    "classification": _coerce_str(row["Classificação"]),
+                    "prazo_pct": 0.0,
+                    "prazo_parcelas": 1,
+                }
+                for _, row in edited_exp.iterrows()
+                if _coerce_str(row.get("Item", "")).strip() != ""
+                or _coerce_float(row.get("Quantidade unitária", 0.0)) != 0.0
+                or _coerce_float(row.get("Valor unitário", 0.0)) != 0.0
+            ]
+
+            if st.button("+ Adicionar despesa", key=f"add_var_exp_{prod_index}"):
+                st.session_state.variable_expenses[prod_index].append(
+                    {
+                        "name": "",
+                        "qty": 0.0,
+                        "unit": 0.0,
+                        "classification": "Operacional",
+                        "prazo_pct": 0.0,
+                        "prazo_parcelas": 1,
+                    }
+                )
+                safe_rerun()
+
+    st.divider()
     # Navigation buttons
     col1, col2 = st.columns([1, 1])
     with col1:
