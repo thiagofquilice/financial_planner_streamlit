@@ -1851,16 +1851,6 @@ def wizard_step3():
             edited_costs["Valor unitário"] = pd.to_numeric(edited_costs["Valor unitário"], errors="coerce").fillna(0.0)
             edited_costs["Valor total"] = edited_costs["Quantidade unitária"] * edited_costs["Valor unitário"]
 
-            st.dataframe(
-                edited_costs[["Item", "Quantidade unitária", "Valor unitário", "Valor total"]],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f"),
-                    "Valor unitário": st.column_config.NumberColumn("Valor unitário", format="R$ %.2f"),
-                },
-            )
-
             total_costs = float(edited_costs["Valor total"].sum()) if not edited_costs.empty else 0.0
             st.markdown(f"**Total de Custos Variáveis do Item {product_name}: {format_currency_br(total_costs)}**")
 
@@ -1915,16 +1905,6 @@ def wizard_step3():
             edited_exp["Valor unitário"] = pd.to_numeric(edited_exp["Valor unitário"], errors="coerce").fillna(0.0)
             edited_exp["Classificação"] = edited_exp["Classificação"].apply(lambda x: "Vendas" if str(x) == "Vendas" else "Operacional")
             edited_exp["Valor total"] = edited_exp["Quantidade unitária"] * edited_exp["Valor unitário"]
-
-            st.dataframe(
-                edited_exp[["Item", "Quantidade unitária", "Valor unitário", "Classificação", "Valor total"]],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f"),
-                    "Valor unitário": st.column_config.NumberColumn("Valor unitário", format="R$ %.2f"),
-                },
-            )
 
             total_exp = float(edited_exp["Valor total"].sum()) if not edited_exp.empty else 0.0
             subtotal_oper = float(edited_exp.loc[edited_exp["Classificação"] == "Operacional", "Valor total"].sum()) if not edited_exp.empty else 0.0
