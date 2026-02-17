@@ -840,7 +840,7 @@ def generate_pdf(summary: Dict[str, float]) -> bytes:
     y -= 30
     c.setFont("Helvetica", 12)
     for key, value in summary.items():
-        c.drawString(50, y, f"{key}: R$ {value:,.2f}")
+        c.drawString(50, y, f"{key}: {format_currency_br(value)}")
         y -= 20
     c.showPage()
     c.save()
@@ -938,7 +938,7 @@ def generate_full_pdf(
         fr = []
         for val in r:
             if isinstance(val, (float, int)):
-                fr.append(f"R$ {val:,.2f}")
+                fr.append(format_currency_br(val))
             else:
                 fr.append(str(val))
         formatted_rows.append(fr)
@@ -952,7 +952,7 @@ def generate_full_pdf(
     y -= line_height * 2
     c.setFont("Helvetica", 8)
     cf_header = ["Ano", "Fluxo de Caixa"]
-    cf_lines = ["\t".join(cf_header)] + [f"{int(row['Ano'])}\tR$ {row['Fluxo de Caixa']:,.2f}" for _, row in fc_df.iterrows()]
+    cf_lines = ["\t".join(cf_header)] + [f"{int(row['Ano'])}\t{format_currency_br(row['Fluxo de Caixa'])}" for _, row in fc_df.iterrows()]
     y = write_lines(cf_lines, y)
     y -= line_height
     # Section: Viabilidade
@@ -975,11 +975,11 @@ def generate_full_pdf(
     c.setFont("Helvetica", 8)
     # Overall summary
     be_lines = []
-    be_lines.append(f"MC total: R$ {break_even_summary['mc']:,.2f}")
-    be_lines.append(f"MC%: {break_even_summary['mc_percent']*100:.2f}%")
-    be_lines.append(f"Custos Fixos (Ano 1): R$ {break_even_summary['fixed_costs']:,.2f}")
+    be_lines.append(f"MC total: {format_currency_br(break_even_summary['mc'])}")
+    be_lines.append(f"MC%: {format_percent_br(break_even_summary['mc_percent'] * 100)}")
+    be_lines.append(f"Gastos Fixos (Ano 1): {format_currency_br(break_even_summary['fixed_costs'])}")
     if break_even_summary['revenue_be'] is not None:
-        be_lines.append(f"Receita de PE: R$ {break_even_summary['revenue_be']:,.2f}")
+        be_lines.append(f"Receita de PE: {format_currency_br(break_even_summary['revenue_be'])}")
     y = write_lines(be_lines, y)
     y -= line_height
     # Per product breakdown
@@ -1004,14 +1004,14 @@ def generate_full_pdf(
         formatted_be_rows.append(
             [
                 str(r[0]),
-                f"R$ {r[1]:,.2f}",
-                f"R$ {r[2]:,.2f}",
-                f"R$ {r[3]:,.2f}",
-                f"R$ {r[4]:,.2f}",
-                f"R$ {r[5]:,.2f}",
-                f"{r[6]:.2f}%",
-                f"R$ {r[7]:,.2f}",
-                f"{r[8]:,.2f}",
+                f"{format_currency_br(r[1])}",
+                f"{format_currency_br(r[2])}",
+                f"{format_currency_br(r[3])}",
+                f"{format_currency_br(r[4])}",
+                f"{format_currency_br(r[5])}",
+                f"{format_percent_br(r[6])}",
+                f"{format_currency_br(r[7])}",
+                f"{r[8]:.2f}".replace(".", ","),
             ]
         )
     be_lines_full = ["\t".join(be_header)] + ["\t".join(row) for row in formatted_be_rows]
@@ -1032,7 +1032,7 @@ def generate_full_pdf(
             if i == 0:  # Year
                 row_fmt.append(str(val))
             else:
-                row_fmt.append(f"R$ {val:,.2f}")
+                row_fmt.append(format_currency_br(val))
         formatted_ann_rows.append(row_fmt)
     ann_lines = ["\t".join(ann_header)] + ["\t".join(row) for row in formatted_ann_rows]
     y = write_lines(ann_lines, y)
@@ -1177,6 +1177,20 @@ def safe_rerun() -> None:
     st.stop()
 
 
+def format_currency_br(value: float) -> str:
+    """Format currency using Brazilian separators with two decimals."""
+
+    text = f"{float(value):,.2f}".replace(",", "#").replace(".", ",").replace("#", ".")
+    return f"R$ {text}"
+
+
+def format_percent_br(value: float) -> str:
+    """Format percentage with two decimals and comma as decimal separator."""
+
+    text = f"{float(value):.2f}".replace(".", ",")
+    return f"{text}%"
+
+
 def render_step_index() -> None:
     """Render a navigation index across all steps at the top of each page.
 
@@ -1185,13 +1199,13 @@ def render_step_index() -> None:
     ``st.session_state`` and triggers a rerun to navigate accordingly.
     """
     step_labels = [
-        "1. Projeto",
-        "2. Receitas",
+        "1. Identificação do Projeto",
+        "2. Estrutura de Receitas",
         "3. Gastos Variáveis",
         "4. Gastos Fixos",
         "5. Investimentos",
-        "6. Financiamento",
-        "7. Resultados",
+        "6. Estrutura de Capital",
+        "7. Resultados e Análises",
     ]
     cols = st.columns(len(step_labels))
     for idx, label in enumerate(step_labels):
@@ -1252,10 +1266,26 @@ def render_planning_sidebar() -> None:
 
 def render_step_header(step_number: int, title: str, description: str) -> None:
     """Render a consistent heading block for wizard steps."""
-
-    st.header(f"Etapa {step_number} · {title}")
-    st.caption(description)
     render_step_index()
+    step_colors = {
+        1: "#0EA5E9",
+        2: "#10B981",
+        3: "#F59E0B",
+        4: "#EF4444",
+        5: "#8B5CF6",
+        6: "#14B8A6",
+        7: "#6366F1",
+    }
+    color = step_colors.get(step_number, "#334155")
+    st.markdown(
+        (
+            f"<div style='padding:10px 14px;border-radius:10px;"
+            f"background:{color};color:white;font-weight:700;margin:10px 0 4px 0;'>"
+            f"Etapa {step_number} · {title}</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+    st.caption(description)
 
 
 def render_summary_cards(summary: Dict[str, float]) -> None:
@@ -1263,11 +1293,11 @@ def render_summary_cards(summary: Dict[str, float]) -> None:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Receita total", f"R$ {summary.get('revenue', 0.0):,.2f}")
+        st.metric("Receita total", format_currency_br(summary.get("revenue", 0.0)))
     with col2:
-        st.metric("Custos totais", f"R$ {summary.get('costs', 0.0):,.2f}")
+        st.metric("Custos totais", format_currency_br(summary.get("costs", 0.0)))
     with col3:
-        st.metric("Lucro líquido", f"R$ {summary.get('profit', 0.0):,.2f}")
+        st.metric("Lucro líquido", format_currency_br(summary.get("profit", 0.0)))
 
 
 def wizard_step1():
@@ -1466,6 +1496,7 @@ def wizard_step2():
                         "Preço base (mês 1)",
                         min_value=0.0,
                         value=base_price_default,
+                        format="%.2f",
                         key=f"rev_base_price_{i}",
                     )
                 with col_bq:
@@ -1638,6 +1669,7 @@ def wizard_step3():
                     "Valor unitário (R$)",
                     min_value=0.0,
                     value=float(item.get("unit", 0.0)),
+                    format="%.2f",
                     key=f"cost_unit_{prod_index}_{i}",
                 )
                 term = st.number_input(
@@ -1681,6 +1713,7 @@ def wizard_step3():
                     "Valor unitário (R$)",
                     min_value=0.0,
                     value=float(vitem.get("unit", 0.0)),
+                    format="%.2f",
                     key=f"var_unit_{prod_index}_{vi}",
                 )
                 term = st.number_input(
@@ -1737,7 +1770,7 @@ def wizard_step4():
             with col1:
                 desc = st.text_input("Descrição", value=item.get("desc", ""), key=f"fixed_costs_desc_{cat_key}_{i}")
             with col2:
-                val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(item.get("value", 0.0)), key=f"fixed_costs_val_{cat_key}_{i}")
+                val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(item.get("value", 0.0)), format="%.2f", key=f"fixed_costs_val_{cat_key}_{i}")
             st.session_state.fixed_costs[cat_key][i] = {"desc": desc, "value": val}
         if st.button(f"+ Adicionar custo fixo {cat_name.lower()}", key=f"add_fixed_costs_{cat_key}"):
             st.session_state.fixed_costs[cat_key].append({"desc": "", "value": 0.0})
@@ -1753,7 +1786,7 @@ def wizard_step4():
             with col1:
                 desc = st.text_input("Descrição", value=exp.get("desc", ""), key=f"fixed_expenses_desc_{cat_key}_{i}")
             with col2:
-                val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(exp.get("value", 0.0)), key=f"fixed_expenses_val_{cat_key}_{i}")
+                val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(exp.get("value", 0.0)), format="%.2f", key=f"fixed_expenses_val_{cat_key}_{i}")
             st.session_state.fixed_expenses[cat_key][i] = {"desc": desc, "value": val}
         if st.button(f"+ Adicionar despesa fixa {cat_name.lower()}", key=f"add_fixed_expenses_{cat_key}"):
             st.session_state.fixed_expenses[cat_key].append({"desc": "", "value": 0.0})
@@ -1791,7 +1824,7 @@ def wizard_step5():
     for i, asset in enumerate(st.session_state.investments):
         with st.expander(f"Ativo {i + 1}", expanded=True):
             desc = st.text_input("Descrição", value=asset.get("desc", ""), key=f"investments_desc_{i}")
-            val = st.number_input("Valor (R$)", min_value=0.0, value=float(asset.get("value", 0.0)), key=f"investments_val_{i}")
+            val = st.number_input("Valor (R$)", min_value=0.0, value=float(asset.get("value", 0.0)), format="%.2f", key=f"investments_val_{i}")
             month = st.number_input("Mês de aquisição", min_value=0, max_value=120, value=int(asset.get("month", 0)), step=1, key=f"investments_month_{i}")
             st.session_state.investments[i] = {"desc": desc, "value": val, "month": month}
     if st.button("+ Adicionar Ativo", key="add_investments"):
@@ -1826,7 +1859,7 @@ def wizard_step6():
         e no fluxo de caixa.
         """
     )
-    loan_amount = st.number_input("Valor do Empréstimo (R$)", min_value=0.0, value=float(st.session_state.financing.get("amount", 0.0)))
+    loan_amount = st.number_input("Valor do Empréstimo (R$)", min_value=0.0, value=float(st.session_state.financing.get("amount", 0.0)), format="%.2f")
     rate = st.number_input("Taxa de Juros anual (%)", min_value=0.0, max_value=100.0, value=float(st.session_state.financing.get("rate", 0.0)))
     years = st.number_input("Prazo (anos)", min_value=0.0, value=float(st.session_state.financing.get("years", 0.0)))
     st.session_state.financing = {"amount": loan_amount, "rate": rate, "years": years}
@@ -1843,29 +1876,9 @@ def wizard_step6():
 
 def wizard_step7():
     """Step 7: Results and report generation."""
-    render_step_header(7, "Resultados e Análises", "Analise os indicadores de viabilidade e o fluxo de caixa.")
-    # Explanation for results and analyses
-    st.markdown(
-        """
-        Aqui você visualiza as projeções consolidadas, indicadores de viabilidade e análises finais:
+    render_step_header(7, "Resultados e Análises", "Analise os indicadores de viabilidade e os gastos projetados.")
+    st.markdown("Acompanhe as análises em uma lista vertical e visualize cada bloco de resultados individualmente.")
 
-        * **Projeções (DRE por custeio variável)** – mostram receita, custos variáveis, margem de contribuição, custos fixos, tributos e resultado por ano.
-        * **Fluxo de Caixa (FC)** – demonstra os fluxos anuais de caixa (incluindo financiamentos), úteis para calcular VPL, TIR
-          e payback.
-        * **Análise de Viabilidade** – apresenta indicadores como VPL (Valor Presente Líquido),
-          TIR (Taxa Interna de Retorno), TIRm (modificada) e Payback.
-        * **Ponto de Equilíbrio (PE)** – calcula a margem de contribuição, custos fixos e a receita
-          necessária para cobrir os custos, além da contribuição individual de cada produto.
-        * **Projeção Mensal e Anual (Fluxo de Caixa e Resultado)** – detalha, mês a mês e ano a ano,
-          a receita, custos variáveis e fixos, tributos, resultado e a decomposição do fluxo de caixa em
-          **operacional**, **financeiro** e **investimento** (regimes de caixa e competência).  
-
-        Ajuste a **Variação da quantidade de vendas** para simular cenários de aumento ou queda nas
-        vendas e observe o impacto nos indicadores. Informe também a **taxa de desconto** para o
-        cálculo do VPL.
-        """
-    )
-    # Allow user to define scenario variation and discount rate
     st.subheader("Configurações de Cenário e Taxa de Desconto")
     col_var, col_rate = st.columns([1, 1])
     with col_var:
@@ -1875,6 +1888,7 @@ def wizard_step7():
             max_value=50.0,
             value=0.0,
             step=5.0,
+            format="%.2f",
         )
     with col_rate:
         discount_rate_input = st.number_input(
@@ -1883,236 +1897,208 @@ def wizard_step7():
             max_value=100.0,
             value=10.0,
             step=0.1,
+            format="%.2f",
         )
+
     variation_factor = 1.0 + variation_pct / 100.0
     discount_rate = discount_rate_input / 100.0
-    # Compute projections and cash flows for the chosen scenario
-    projections, cashflows, investments_total = compute_projections(st.session_state, variation=variation_factor)
-    # Display income statement (DRE) excluding year 0
-    st.subheader("Demonstração do Resultado (Regime de Competência · Custeio Variável)")
-    df_dre = pd.DataFrame(
-        [p for p in projections[1:]],
-        columns=["Ano", "Receita", "Custos", "Custos Fixos", "Tributos", "Lucro"],
-    )
-    st.dataframe(
-        df_dre.style.format(
-            {
-                "Receita": "R$ {:,.2f}",
-                "Custos": "R$ {:,.2f}",
-                "Custos Fixos": "R$ {:,.2f}",
-                "Tributos": "R$ {:,.2f}",
-                "Lucro": "R$ {:,.2f}",
-            }
-        ),
-        use_container_width=True,
-    )
-    # Compute cash flow projection (FC)
-    st.subheader("Demonstração dos Fluxos de Caixa (Regime de Caixa)")
-    df_fc = pd.DataFrame(
-        {
-            "Ano": list(range(len(cashflows))),
-            "Fluxo de Caixa": cashflows,
-        }
-    )
-    st.dataframe(df_fc.style.format({"Fluxo de Caixa": "R$ {:,.2f}"}), use_container_width=True)
-    # Plot the cash flow over time
-    st.line_chart(df_fc.set_index("Ano"))
-    # Compute viability metrics
+    projections, cashflows, _ = compute_projections(st.session_state, variation=variation_factor)
+
+    df_dre = pd.DataFrame([p for p in projections[1:]], columns=["Ano", "Receita", "Custos", "Custos Fixos", "Tributos", "Lucro"])
+    df_fc = pd.DataFrame({"Ano": list(range(len(cashflows))), "Fluxo de Caixa": cashflows})
     npv = compute_npv(cashflows, discount_rate)
-    irr = compute_irr(cashflows)  # returns a decimal or None
+    irr = compute_irr(cashflows)
     mirr = compute_mirr(cashflows, finance_rate=discount_rate, reinvest_rate=discount_rate)
     payback, discounted_payback = compute_payback(cashflows, discount_rate)
-    # Display viability summary
-    st.subheader("Análise de Viabilidade")
+    summary = compute_summary(st.session_state)
+    be = compute_break_even(st.session_state, variation_factor)
+    df_month, df_ann = compute_monthly_projections(st.session_state, variation_factor)
+
     metrics_table = pd.DataFrame(
         {
             "Indicador": ["VPL (NPV)", "TIR", "TIRm", "Payback (anos)", "Payback Descontado (anos)"],
             "Valor": [
-                f"R$ {npv:,.2f}",
-                f"{irr * 100:.2f}%" if irr is not None else "N/D",
-                f"{mirr * 100:.2f}%" if mirr is not None else "N/D",
+                format_currency_br(npv),
+                format_percent_br(irr * 100) if irr is not None else "N/D",
+                format_percent_br(mirr * 100) if mirr is not None else "N/D",
                 str(payback) if payback is not None else "> horizonte",
                 str(discounted_payback) if discounted_payback is not None else "> horizonte",
             ],
         }
     )
-    st.table(metrics_table)
-    # Provide summary metrics similar to earlier summary for context
-    summary = compute_summary(st.session_state)
-    render_summary_cards(summary)
-    st.subheader("Resumo Gerencial (Ano 1 – Custeio Variável)")
-    st.table(pd.DataFrame({"Categoria": summary.keys(), "Valor": summary.values()}))
-    # Generate downloadable files based on base summary
-    pdf_data = generate_pdf(summary)
-    st.download_button(
-        label="Baixar PDF (Resumo Base)",
-        data=pdf_data,
-        file_name="relatorio_financeiro.pdf",
-        mime="application/pdf",
-        key="download_pdf_base",
-    )
-    excel_data = generate_excel(summary)
-    st.download_button(
-        label="Baixar Excel (Resumo Base)",
-        data=excel_data,
-        file_name="relatorio_financeiro.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download_excel_base",
-    )
 
-    # Compute break-even analysis early for reuse in PDF and display
-    be = compute_break_even(st.session_state, variation_factor)
     df_be_prod = pd.DataFrame()
     if be:
-        # Build DataFrame for break-even analysis. The order of columns emphasizes
-        # price (P), unit variable cost (CVu) and unit variable expense (DVu),
-        # followed by contribution margins and break-even figures.  The margin per
-        # unit is computed as P - CVu - DVu and stored in the state already.
-        df_be_prod = pd.DataFrame([
-            {
-                "Produto/Serviço": p["name"],
-                "Preço (P)": p.get("price", 0.0),
-                "Custo variável unitário (CVu)": p.get("cost_unit", 0.0),
-                "Despesa variável unitária (DVu)": p.get("var_unit", 0.0),
-                "Margem de Contribuição unitária (MCu)": p.get("mc_unit", 0.0),
-                "Margem de Contribuição total (MCt)": p.get("mc_total", 0.0),
-                "Participação (%)": p["share"] * 100.0,
-                "Receita de PE (R$)": p["revenue_be"],
-                "Quantidade de PE": p["quantity_be"],
+        df_be_prod = pd.DataFrame(be["product_breakdown"]).rename(
+            columns={
+                "product": "Produto/Serviço",
+                "share": "Participação (%)",
+                "revenue_be": "Receita de PE (R$)",
+                "qty_be": "Quantidade de PE",
+                "mc_unit": "Margem de Contribuição unitária (MCu)",
+                "mc_total": "Margem de Contribuição total (MCt)",
+                "price": "Preço (P)",
+                "cost_unit": "Custo variável unitário (CVu)",
+                "var_unit": "Despesa variável unitária (DVu)",
             }
-            for p in be["product_breakdown"]
-        ])
-
-    # Compute monthly and annual details for the selected scenario
-    df_month, df_ann = compute_monthly_details(st.session_state, variation_factor)
-
-    # Offer full PDF export with all analyses
-    try:
-        full_pdf_data = generate_full_pdf(
-            project_name=st.session_state.get("project_name", "Projeto"),
-            horizon=int(st.session_state.get("horizon", 1) or 1),
-            variation_pct=variation_pct,
-            discount_rate=discount_rate,
-            dre_df=df_dre,
-            fc_df=pd.DataFrame({"Ano": list(range(len(cashflows))), "Fluxo de Caixa": cashflows}),
-            metrics_df=metrics_table,
-            break_even_summary=be if be else {},
-            break_even_df=df_be_prod if not df_be_prod.empty else pd.DataFrame(),
-            ann_df=df_ann,
         )
-        st.download_button(
-            label="Exportar todas as análises em PDF",
-            data=full_pdf_data,
-            file_name="analises_completas.pdf",
-            mime="application/pdf",
-            key="download_full_pdf",
-        )
-    except Exception:
-        pass
+        df_be_prod["Participação (%)"] = df_be_prod["Participação (%)"] * 100.0
 
-    # Break-even analysis and contribution margin
-    if be:
-        st.subheader("Ponto de Equilíbrio (PE) e Margem de Contribuição")
-        st.markdown(f"**Margem de Contribuição (MC):** R$ {be['mc']:,.2f}")
-        st.markdown(f"**Margem de Contribuição (%):** {be['mc_percent'] * 100:.2f}%")
-        st.markdown(f"**Custos Fixos (Ano 1):** R$ {be['fixed_costs']:,.2f}")
-        if be['revenue_be'] is not None:
-            st.markdown(f"**Receita de Ponto de Equilíbrio:** R$ {be['revenue_be']:,.2f}")
+    analysis_options = [
+        "1) Gastos e Resultado (DRE)",
+        "2) Fluxo de Caixa",
+        "3) Viabilidade",
+        "4) Resumo Gerencial",
+        "5) Ponto de Equilíbrio",
+        "6) Projeções Mensais",
+        "7) Projeções Anuais",
+        "8) Exportações",
+    ]
+    selected = st.radio("Selecione a análise", analysis_options, index=0, vertical=True)
+
+    currency_fmt = {
+        "Receita": lambda x: format_currency_br(x),
+        "Custos": lambda x: format_currency_br(x),
+        "Custos Fixos": lambda x: format_currency_br(x),
+        "Tributos": lambda x: format_currency_br(x),
+        "Lucro": lambda x: format_currency_br(x),
+        "Fluxo de Caixa": lambda x: format_currency_br(x),
+        "Valor": lambda x: format_currency_br(x),
+    }
+
+    if selected == analysis_options[0]:
+        st.subheader("Demonstração do Resultado (Regime de Competência · Custeio Variável)")
+        st.dataframe(df_dre.style.format(currency_fmt), use_container_width=True)
+    elif selected == analysis_options[1]:
+        st.subheader("Demonstração dos Fluxos de Caixa (Regime de Caixa)")
+        st.dataframe(df_fc.style.format({"Fluxo de Caixa": lambda x: format_currency_br(x)}), use_container_width=True)
+        st.line_chart(df_fc.set_index("Ano"))
+    elif selected == analysis_options[2]:
+        st.subheader("Análise de Viabilidade")
+        st.table(metrics_table)
+    elif selected == analysis_options[3]:
+        render_summary_cards(summary)
+        st.subheader("Resumo Gerencial (Ano 1 – Custeio Variável)")
+        sum_df = pd.DataFrame({"Categoria": list(summary.keys()), "Valor": list(summary.values())})
+        st.dataframe(sum_df.style.format({"Valor": lambda x: format_currency_br(x)}), use_container_width=True)
+    elif selected == analysis_options[4]:
+        if be:
+            st.subheader("Ponto de Equilíbrio (PE) e Margem de Contribuição")
+            st.markdown(f"**Margem de Contribuição (MC):** {format_currency_br(be['mc'])}")
+            st.markdown(f"**Margem de Contribuição (%):** {format_percent_br(be['mc_percent'] * 100)}")
+            st.markdown(f"**Gastos Fixos (Ano 1):** {format_currency_br(be['fixed_costs'])}")
+            if be["revenue_be"] is not None:
+                st.markdown(f"**Receita de Ponto de Equilíbrio:** {format_currency_br(be['revenue_be'])}")
+            else:
+                st.markdown("**Receita de Ponto de Equilíbrio:** N/D")
+            st.dataframe(
+                df_be_prod.style.format(
+                    {
+                        "Participação (%)": lambda x: format_percent_br(x),
+                        "Receita de PE (R$)": lambda x: format_currency_br(x),
+                        "Quantidade de PE": "{:.2f}",
+                        "Margem de Contribuição unitária (MCu)": lambda x: format_currency_br(x),
+                        "Margem de Contribuição total (MCt)": lambda x: format_currency_br(x),
+                        "Preço (P)": lambda x: format_currency_br(x),
+                        "Custo variável unitário (CVu)": lambda x: format_currency_br(x),
+                        "Despesa variável unitária (DVu)": lambda x: format_currency_br(x),
+                    }
+                ),
+                use_container_width=True,
+            )
         else:
-            st.markdown("**Receita de Ponto de Equilíbrio:** N/D")
+            st.info("Sem dados suficientes para calcular o ponto de equilíbrio.")
+    elif selected == analysis_options[5]:
+        st.subheader("Projeções Mensais – Gastos e Resultado (Competência)")
+        df_month_dre = df_month[["Mês", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]]
         st.dataframe(
-            df_be_prod.style.format(
-                {
-                    "Participação (%)": "{:.2f}",
-                    "Receita de PE (R$)": "R$ {:,.2f}",
-                    "Quantidade de PE": "{:.2f}",
-                    "Margem de Contribuição unitária (MCu)": "R$ {:,.2f}",
-                    "Margem de Contribuição total (MCt)": "R$ {:,.2f}",
-                    "Preço (P)": "R$ {:,.2f}",
-                    "Custo variável unitário (CVu)": "R$ {:,.2f}",
-                    "Despesa variável unitária (DVu)": "R$ {:,.2f}",
-                }
-            ),
+            df_month_dre.style.format({
+                "Receita": lambda x: format_currency_br(x),
+                "Custo Variável": lambda x: format_currency_br(x),
+                "Custo Fixo": lambda x: format_currency_br(x),
+                "Tributos": lambda x: format_currency_br(x),
+                "Lucro": lambda x: format_currency_br(x),
+            }),
             use_container_width=True,
         )
+        st.subheader("Projeções Mensais – Fluxo de Caixa")
+        df_month_dfc = df_month[["Mês", "Receita Caixa", "Custo Variável", "Custo Fixo", "Tributos", "CF Operacional", "CF Financeiro", "CF Investimento", "CF Total"]]
+        st.dataframe(
+            df_month_dfc.style.format({
+                "Receita Caixa": lambda x: format_currency_br(x),
+                "Custo Variável": lambda x: format_currency_br(x),
+                "Custo Fixo": lambda x: format_currency_br(x),
+                "Tributos": lambda x: format_currency_br(x),
+                "CF Operacional": lambda x: format_currency_br(x),
+                "CF Financeiro": lambda x: format_currency_br(x),
+                "CF Investimento": lambda x: format_currency_br(x),
+                "CF Total": lambda x: format_currency_br(x),
+            }),
+            use_container_width=True,
+        )
+    elif selected == analysis_options[6]:
+        st.subheader("Projeções Anuais – Gastos e Resultado (Competência)")
+        df_ann_dre = df_ann[["Ano", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]]
+        st.dataframe(
+            df_ann_dre.style.format({
+                "Receita": lambda x: format_currency_br(x),
+                "Custo Variável": lambda x: format_currency_br(x),
+                "Custo Fixo": lambda x: format_currency_br(x),
+                "Tributos": lambda x: format_currency_br(x),
+                "Lucro": lambda x: format_currency_br(x),
+            }),
+            use_container_width=True,
+        )
+        st.subheader("Projeções Anuais – Fluxo de Caixa")
+        df_ann_dfc = df_ann[["Ano", "Receita Caixa", "Custo Variável", "Custo Fixo", "Tributos", "CF Operacional", "CF Financeiro", "CF Investimento", "CF Total"]]
+        st.dataframe(
+            df_ann_dfc.style.format({
+                "Receita Caixa": lambda x: format_currency_br(x),
+                "Custo Variável": lambda x: format_currency_br(x),
+                "Custo Fixo": lambda x: format_currency_br(x),
+                "Tributos": lambda x: format_currency_br(x),
+                "CF Operacional": lambda x: format_currency_br(x),
+                "CF Financeiro": lambda x: format_currency_br(x),
+                "CF Investimento": lambda x: format_currency_br(x),
+                "CF Total": lambda x: format_currency_br(x),
+            }),
+            use_container_width=True,
+        )
+    else:
+        pdf_data = generate_pdf(summary)
+        st.download_button(label="Baixar PDF (Resumo Base)", data=pdf_data, file_name="relatorio_financeiro.pdf", mime="application/pdf", key="download_pdf_base")
+        excel_data = generate_excel(summary)
+        st.download_button(label="Baixar Excel (Resumo Base)", data=excel_data, file_name="relatorio_financeiro.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="download_excel_base")
+        try:
+            full_pdf_data = generate_full_pdf(
+                st.session_state.project_name or "Projeto",
+                int(st.session_state.horizon or 1),
+                variation_pct,
+                discount_rate,
+                df_dre,
+                df_fc,
+                metrics_table,
+                be if be else {"mc": 0.0, "mc_percent": 0.0, "fixed_costs": 0.0, "revenue_be": None},
+                df_be_prod,
+                df_ann,
+            )
+            st.download_button(
+                label="Exportar todas as análises em PDF",
+                data=full_pdf_data,
+                file_name="analises_completas.pdf",
+                mime="application/pdf",
+                key="download_full_pdf",
+            )
+        except Exception:
+            pass
 
-    # Separate monthly and annual projections into DRE (competência) and DFC (caixa)
-    # Present individual sections for clarity
-    # Monthly Income Statement (DRE) – accrual basis
-    st.subheader("Projeções Mensais – Demonstração do Resultado (Competência)")
-    df_month_dre = df_month[["Mês", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]]
-    st.dataframe(
-        df_month_dre.style.format(
-            {
-                "Receita": "R$ {:,.2f}",
-                "Custo Variável": "R$ {:,.2f}",
-                "Custo Fixo": "R$ {:,.2f}",
-                "Tributos": "R$ {:,.2f}",
-                "Lucro": "R$ {:,.2f}",
-            }
-        ),
-        use_container_width=True,
-    )
-    # Monthly Cash Flow – cash basis
-    st.subheader("Projeções Mensais – Fluxo de Caixa (Regime de Caixa)")
-    df_month_dfc = df_month[["Mês", "Receita Caixa", "Custo Variável", "Custo Fixo", "Tributos", "CF Operacional", "CF Financeiro", "CF Investimento", "CF Total"]]
-    st.dataframe(
-        df_month_dfc.style.format(
-            {
-                "Receita Caixa": "R$ {:,.2f}",
-                "Custo Variável": "R$ {:,.2f}",
-                "Custo Fixo": "R$ {:,.2f}",
-                "Tributos": "R$ {:,.2f}",
-                "CF Operacional": "R$ {:,.2f}",
-                "CF Financeiro": "R$ {:,.2f}",
-                "CF Investimento": "R$ {:,.2f}",
-                "CF Total": "R$ {:,.2f}",
-            }
-        ),
-        use_container_width=True,
-    )
-    # Annual Income Statement (DRE) – accrual basis
-    st.subheader("Projeções Anuais – Demonstração do Resultado (Competência)")
-    df_ann_dre = df_ann[["Ano", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]]
-    st.dataframe(
-        df_ann_dre.style.format(
-            {
-                "Receita": "R$ {:,.2f}",
-                "Custo Variável": "R$ {:,.2f}",
-                "Custo Fixo": "R$ {:,.2f}",
-                "Tributos": "R$ {:,.2f}",
-                "Lucro": "R$ {:,.2f}",
-            }
-        ),
-        use_container_width=True,
-    )
-    # Annual Cash Flow – cash basis
-    st.subheader("Projeções Anuais – Fluxo de Caixa (Regime de Caixa)")
-    df_ann_dfc = df_ann[["Ano", "Receita Caixa", "Custo Variável", "Custo Fixo", "Tributos", "CF Operacional", "CF Financeiro", "CF Investimento", "CF Total"]]
-    st.dataframe(
-        df_ann_dfc.style.format(
-            {
-                "Receita Caixa": "R$ {:,.2f}",
-                "Custo Variável": "R$ {:,.2f}",
-                "Custo Fixo": "R$ {:,.2f}",
-                "Tributos": "R$ {:,.2f}",
-                "CF Operacional": "R$ {:,.2f}",
-                "CF Financeiro": "R$ {:,.2f}",
-                "CF Investimento": "R$ {:,.2f}",
-                "CF Total": "R$ {:,.2f}",
-            }
-        ),
-        use_container_width=True,
-    )
-    # Navigation buttons
     col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("◂ Voltar", key="back7"):
+        if st.button("◂ Voltar", key="back7"):
             st.session_state.step = 6
             safe_rerun()
     with col2:
         if st.button("Reiniciar", key="restart7"):
-            # Reset session state to start again
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             init_state()
