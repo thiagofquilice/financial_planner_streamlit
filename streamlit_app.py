@@ -1275,6 +1275,31 @@ def safe_rerun() -> None:
     st.stop()
 
 
+def _normalize_indexed_dict_keys(value: Any) -> Dict[int, Any]:
+    """Return a dict with integer keys for structures indexed by product id."""
+
+    if not isinstance(value, dict):
+        return {}
+    normalized: Dict[int, Any] = {}
+    for k, v in value.items():
+        try:
+            normalized[int(k)] = v
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def normalize_loaded_project_data(loaded: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize uploaded project JSON to expected in-memory shapes."""
+
+    data = dict(loaded or {})
+    for indexed_key in ["revenue_monthly", "costs", "variable_expenses"]:
+        data[indexed_key] = _normalize_indexed_dict_keys(data.get(indexed_key, {}))
+    if "financing" in data and not isinstance(data["financing"], dict):
+        data["financing"] = {}
+    return data
+
+
 def format_currency_br(value: float) -> str:
     """Format currency using Brazilian separators with two decimals."""
 
@@ -1503,6 +1528,7 @@ def wizard_step1():
             "fixed_expenses": st.session_state.get("fixed_expenses", {}),
             "fixed_costs": st.session_state.get("fixed_costs", {}),
             "investments": st.session_state.get("investments", []),
+            "financing": st.session_state.get("financing", {}),
             "calculate_tax": st.session_state.get("calculate_tax", False),
             "tax_annex": st.session_state.get("tax_annex", "I"),
         }
@@ -1518,7 +1544,7 @@ def wizard_step1():
         uploaded = st.file_uploader("Carregar projeto (JSON)", type=["json"], key="upload_project_json")
         if uploaded is not None:
             try:
-                loaded = json.loads(uploaded.read().decode("utf-8"))
+                loaded = normalize_loaded_project_data(json.loads(uploaded.read().decode("utf-8")))
                 # Update session state with loaded values
                 for k, v in loaded.items():
                     st.session_state[k] = v
