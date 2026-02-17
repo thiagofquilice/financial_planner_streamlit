@@ -1851,48 +1851,58 @@ def wizard_step3():
 
             df_costs["Valor total"] = df_costs["Quantidade unitária"] * df_costs["Valor unitário"]
 
-            edited_costs = st.data_editor(
-                df_costs,
-                use_container_width=True,
-                num_rows="dynamic",
-                key=f"costs_table_{prod_index}",
-                column_config={
-                    "Item": st.column_config.TextColumn("Item"),
-                    "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
-                    "Valor unitário": st.column_config.NumberColumn("Valor unitário", min_value=0.0, step=0.01, format="R$ %.2f"),
-                    "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f", disabled=True),
-                },
-                disabled=["Valor total"],
-            )
+            st.dataframe(df_costs, use_container_width=True, hide_index=True)
 
-            # Recalcula total (garante consistência após edição)
-            edited_costs["Quantidade unitária"] = edited_costs["Quantidade unitária"].apply(_coerce_float)
-            edited_costs["Valor unitário"] = edited_costs["Valor unitário"].apply(_coerce_float)
-            edited_costs["Valor total"] = edited_costs["Quantidade unitária"] * edited_costs["Valor unitário"]
-
-            total_costs = float(edited_costs["Valor total"].sum()) if not edited_costs.empty else 0.0
+            total_costs = float(df_costs["Valor total"].sum()) if not df_costs.empty else 0.0
             st.markdown(f"**Total de Custos Variáveis do Item {product_name}: {format_currency_br(total_costs)}**")
 
-            # Persiste no state (mantém o mesmo formato esperado no restante do app)
-            st.session_state.costs[prod_index] = [
-                {
-                    "name": _coerce_str(row.get("Item", "")),
-                    "qty": _coerce_float(row.get("Quantidade unitária", 0.0)),
-                    "unit": _coerce_float(row.get("Valor unitário", 0.0)),
-                    "prazo_pct": 0.0,
-                    "prazo_parcelas": 1,
-                }
-                for _, row in edited_costs.iterrows()
-                if _coerce_str(row.get("Item", "")).strip() != ""
-                or _coerce_float(row.get("Quantidade unitária", 0.0)) != 0.0
-                or _coerce_float(row.get("Valor unitário", 0.0)) != 0.0
-            ]
+            cost_form_flag = f"show_cost_form_{prod_index}"
+            st.session_state.setdefault(cost_form_flag, False)
 
             if st.button("+ Adicionar custo", key=f"add_cost_{prod_index}"):
-                st.session_state.costs[prod_index].append(
-                    {"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1}
-                )
+                st.session_state[cost_form_flag] = True
                 safe_rerun()
+
+            if st.session_state.get(cost_form_flag):
+                with st.expander("Novo custo variável", expanded=True):
+                    cost_name = st.text_input("Item", key=f"new_cost_name_{prod_index}")
+                    col_cost_1, col_cost_2 = st.columns(2)
+                    with col_cost_1:
+                        cost_qty = st.number_input(
+                            "Quantidade unitária",
+                            min_value=0.0,
+                            step=1.0,
+                            key=f"new_cost_qty_{prod_index}",
+                        )
+                    with col_cost_2:
+                        cost_unit = st.number_input(
+                            "Valor unitário",
+                            min_value=0.0,
+                            step=0.01,
+                            format="%.2f",
+                            key=f"new_cost_unit_{prod_index}",
+                        )
+                    col_save, col_cancel = st.columns(2)
+                    with col_save:
+                        if st.button("OK custo", key=f"ok_cost_{prod_index}"):
+                            st.session_state.costs[prod_index].append(
+                                {
+                                    "name": cost_name,
+                                    "qty": _coerce_float(cost_qty),
+                                    "unit": _coerce_float(cost_unit),
+                                    "prazo_pct": 0.0,
+                                    "prazo_parcelas": 1,
+                                }
+                            )
+                            st.session_state[cost_form_flag] = False
+                            st.session_state[f"new_cost_name_{prod_index}"] = ""
+                            st.session_state[f"new_cost_qty_{prod_index}"] = 0.0
+                            st.session_state[f"new_cost_unit_{prod_index}"] = 0.0
+                            safe_rerun()
+                    with col_cancel:
+                        if st.button("Cancelar", key=f"cancel_cost_{prod_index}"):
+                            st.session_state[cost_form_flag] = False
+                            safe_rerun()
 
         # ---------------- (B) QUADRO DE DESPESAS VARIÁVEIS ----------------
         with st.container(border=True):
@@ -1918,58 +1928,65 @@ def wizard_step3():
             )
             df_exp["Valor total"] = df_exp["Quantidade unitária"] * df_exp["Valor unitário"]
 
-            edited_exp = st.data_editor(
-                df_exp,
-                use_container_width=True,
-                num_rows="dynamic",
-                key=f"var_exp_table_{prod_index}",
-                column_config={
-                    "Item": st.column_config.TextColumn("Item"),
-                    "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
-                    "Valor unitário": st.column_config.NumberColumn("Valor unitário", min_value=0.0, step=0.01, format="R$ %.2f"),
-                    "Classificação": st.column_config.SelectboxColumn("Classificação", options=["Operacional", "Vendas"]),
-                    "Valor total": st.column_config.NumberColumn("Valor total", format="R$ %.2f", disabled=True),
-                },
-                disabled=["Valor total"],
-            )
+            st.dataframe(df_exp, use_container_width=True, hide_index=True)
 
-            edited_exp["Quantidade unitária"] = edited_exp["Quantidade unitária"].apply(_coerce_float)
-            edited_exp["Valor unitário"] = edited_exp["Valor unitário"].apply(_coerce_float)
-            edited_exp["Classificação"] = edited_exp["Classificação"].apply(
-                lambda x: "Vendas" if str(x) == "Vendas" else "Operacional"
-            )
-            edited_exp["Valor total"] = edited_exp["Quantidade unitária"] * edited_exp["Valor unitário"]
-
-            total_expenses = float(edited_exp["Valor total"].sum()) if not edited_exp.empty else 0.0
+            total_expenses = float(df_exp["Valor total"].sum()) if not df_exp.empty else 0.0
             st.markdown(f"**Total de Despesas Variáveis do Item {product_name}: {format_currency_br(total_expenses)}**")
 
-            st.session_state.variable_expenses[prod_index] = [
-                {
-                    "name": _coerce_str(row.get("Item", "")),
-                    "qty": _coerce_float(row.get("Quantidade unitária", 0.0)),
-                    "unit": _coerce_float(row.get("Valor unitário", 0.0)),
-                    "classification": _coerce_str(row.get("Classificação", "Operacional")),
-                    "prazo_pct": 0.0,
-                    "prazo_parcelas": 1,
-                }
-                for _, row in edited_exp.iterrows()
-                if _coerce_str(row.get("Item", "")).strip() != ""
-                or _coerce_float(row.get("Quantidade unitária", 0.0)) != 0.0
-                or _coerce_float(row.get("Valor unitário", 0.0)) != 0.0
-            ]
+            exp_form_flag = f"show_exp_form_{prod_index}"
+            st.session_state.setdefault(exp_form_flag, False)
 
             if st.button("+ Adicionar despesa", key=f"add_var_exp_{prod_index}"):
-                st.session_state.variable_expenses[prod_index].append(
-                    {
-                        "name": "",
-                        "qty": 0.0,
-                        "unit": 0.0,
-                        "classification": "Operacional",
-                        "prazo_pct": 0.0,
-                        "prazo_parcelas": 1,
-                    }
-                )
+                st.session_state[exp_form_flag] = True
                 safe_rerun()
+
+            if st.session_state.get(exp_form_flag):
+                with st.expander("Nova despesa variável", expanded=True):
+                    exp_name = st.text_input("Item", key=f"new_exp_name_{prod_index}")
+                    col_exp_1, col_exp_2 = st.columns(2)
+                    with col_exp_1:
+                        exp_qty = st.number_input(
+                            "Quantidade unitária",
+                            min_value=0.0,
+                            step=1.0,
+                            key=f"new_exp_qty_{prod_index}",
+                        )
+                    with col_exp_2:
+                        exp_unit = st.number_input(
+                            "Valor unitário",
+                            min_value=0.0,
+                            step=0.01,
+                            format="%.2f",
+                            key=f"new_exp_unit_{prod_index}",
+                        )
+                    exp_classification = st.selectbox(
+                        "Classificação",
+                        options=["Operacional", "Vendas"],
+                        key=f"new_exp_class_{prod_index}",
+                    )
+                    col_save_exp, col_cancel_exp = st.columns(2)
+                    with col_save_exp:
+                        if st.button("OK despesa", key=f"ok_exp_{prod_index}"):
+                            st.session_state.variable_expenses[prod_index].append(
+                                {
+                                    "name": exp_name,
+                                    "qty": _coerce_float(exp_qty),
+                                    "unit": _coerce_float(exp_unit),
+                                    "classification": exp_classification,
+                                    "prazo_pct": 0.0,
+                                    "prazo_parcelas": 1,
+                                }
+                            )
+                            st.session_state[exp_form_flag] = False
+                            st.session_state[f"new_exp_name_{prod_index}"] = ""
+                            st.session_state[f"new_exp_qty_{prod_index}"] = 0.0
+                            st.session_state[f"new_exp_unit_{prod_index}"] = 0.0
+                            st.session_state[f"new_exp_class_{prod_index}"] = "Operacional"
+                            safe_rerun()
+                    with col_cancel_exp:
+                        if st.button("Cancelar", key=f"cancel_exp_{prod_index}"):
+                            st.session_state[exp_form_flag] = False
+                            safe_rerun()
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("◂ Voltar", key="back3"):
