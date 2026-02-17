@@ -235,13 +235,18 @@ def compute_summary(state: st.session_state) -> Dict[str, float]:
         year1 = projections[1]
     else:
         year1 = {"Receita": 0.0, "Custos": 0.0, "Opex": 0.0, "Lucro": 0.0}
+    receita = year1.get("Receita", 0.0)
+    custos_variaveis = year1.get("Custos", 0.0)
+    tributos = year1.get("Tributos", 0.0)
+    margem_contribuicao = receita - custos_variaveis - tributos
     summary = {
-        "Receita Total": year1.get("Receita", 0.0),
-        "Custos Diretos Totais": year1.get("Custos", 0.0),
-        "Opex Anual Total": year1.get("Opex", 0.0),
-        "Tributos (Simples)": year1.get("Tributos", 0.0),
+        "Receita Total": receita,
+        "Custos Variáveis Totais": custos_variaveis,
+        "Tributos Variáveis (Simples)": tributos,
+        "Margem de Contribuição": margem_contribuicao,
+        "Custos Fixos (Opex)": year1.get("Opex", 0.0),
         "Capex Total": capex_total,
-        "Lucro Aproximado": year1.get("Lucro", 0.0),
+        "Resultado Operacional": year1.get("Lucro", 0.0),
     }
     return summary
 
@@ -378,9 +383,10 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
                 annex = state.get("tax_annex", "I")
                 # Use annual revenue as RBT12
                 _, tax_amount = compute_simples_tax(revenue, str(annex))
-            # Profit and cash flow include tax
-            profit = revenue - cost - opex - loan_payment_year - tax_amount
-            cash_flow = revenue - cost - opex - loan_payment_year - tax_amount
+            # Under variável costing, financing amortisation is not part of
+            # operating result (DRE). It remains in cash flow only.
+            profit = revenue - cost - opex - tax_amount
+            cash_flow = profit - loan_payment_year
         projections.append(
             {
                 "Ano": t,
@@ -768,8 +774,8 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
         invest_cf_m = capex_monthly[m]
         # Operational cash flow: cash receipts minus variable and fixed costs minus taxes
         oper_cf_m = cash_receipt_m - var_cost_m - fixed_cost_m - tax_m
-        # Profit (competency regime): revenue (accrual) minus variable and fixed costs minus taxes minus loan payment
-        profit_m = revenue_m - var_cost_m - fixed_cost_m - tax_m - (loan_payment_ann / 12.0 if (m // 12) < years else 0.0)
+        # Profit in competência follows custeio variável, excluding financing flows.
+        profit_m = revenue_m - var_cost_m - fixed_cost_m - tax_m
         # Total cash flow
         total_cf_m = oper_cf_m + fin_cf_m + invest_cf_m
         rows_month.append(
@@ -870,8 +876,8 @@ def generate_full_pdf(
 ) -> bytes:
     """Generate a comprehensive PDF report with all analyses.
 
-    The report includes the DRE (income statement) projections, cash flow
-    projections, viability metrics, break‑even analysis and annual summaries.
+    The report includes DRE projections under variable costing, cash-flow
+    projections, viability metrics, break-even analysis and annual summaries.
 
     Args:
         project_name: Name of the project.
@@ -1514,7 +1520,7 @@ def wizard_step2():
 
 def wizard_step3():
     """Step 3: Direct costs linked to each product/service."""
-    st.header("Etapa 3 · Custos Diretos")
+    st.header("Etapa 3 · Custos Variáveis Diretos")
     # Display navigation index across all steps
     render_step_index()
     # Explanation for direct costs
@@ -1645,7 +1651,7 @@ def wizard_step4():
     # Explanation for operating expenses
     st.markdown(
         """
-        As **despesas operacionais** são todos os gastos fixos que não variam diretamente com o volume
+        As **despesas operacionais** são os **custos fixos** que não variam diretamente com o volume
         de vendas ou produção. Elas são agrupadas em três categorias:
 
         * **Operacionais** – despesas necessárias para manter o negócio funcionando, como aluguel,
@@ -1772,15 +1778,15 @@ def wizard_step7():
         """
         Aqui você visualiza as projeções consolidadas, indicadores de viabilidade e análises finais:
 
-        * **Projeções (BP/DRE)** – mostram a receita, custos, despesas, tributos e lucro por ano.
-        * **Fluxo de Caixa (FC)** – demonstra os fluxos anuais de caixa, úteis para calcular VPL, TIR
+        * **Projeções (DRE por custeio variável)** – mostram receita, custos variáveis, margem de contribuição, custos fixos, tributos e resultado por ano.
+        * **Fluxo de Caixa (FC)** – demonstra os fluxos anuais de caixa (incluindo financiamentos), úteis para calcular VPL, TIR
           e payback.
         * **Análise de Viabilidade** – apresenta indicadores como VPL (Valor Presente Líquido),
           TIR (Taxa Interna de Retorno), TIRm (modificada) e Payback.
         * **Ponto de Equilíbrio (PE)** – calcula a margem de contribuição, custos fixos e a receita
           necessária para cobrir os custos, além da contribuição individual de cada produto.
         * **Projeção Mensal e Anual (Fluxo de Caixa e Resultado)** – detalha, mês a mês e ano a ano,
-          a receita, custos variáveis e fixos, tributos, lucro e a decomposição do fluxo de caixa em
+          a receita, custos variáveis e fixos, tributos, resultado e a decomposição do fluxo de caixa em
           **operacional**, **financeiro** e **investimento** (regimes de caixa e competência).  
 
         Ajuste a **Variação da quantidade de vendas** para simular cenários de aumento ou queda nas
@@ -1812,10 +1818,10 @@ def wizard_step7():
     # Compute projections and cash flows for the chosen scenario
     projections, cashflows, capex_total = compute_projections(st.session_state, variation=variation_factor)
     # Display income statement (DRE) excluding year 0
-    st.subheader("Demonstração do Resultado do Exercício (Regime de Competência)")
+    st.subheader("Demonstração do Resultado (Regime de Competência · Custeio Variável)")
     df_dre = pd.DataFrame(
         [p for p in projections[1:]],
-        columns=["Ano", "Receita", "Custos", "Opex", "Pagamento Empréstimo", "Tributos", "Lucro"],
+        columns=["Ano", "Receita", "Custos", "Opex", "Tributos", "Lucro"],
     )
     st.dataframe(
         df_dre.style.format(
@@ -1823,7 +1829,6 @@ def wizard_step7():
                 "Receita": "R$ {:,.2f}",
                 "Custos": "R$ {:,.2f}",
                 "Opex": "R$ {:,.2f}",
-                "Pagamento Empréstimo": "R$ {:,.2f}",
                 "Tributos": "R$ {:,.2f}",
                 "Lucro": "R$ {:,.2f}",
             }
@@ -1863,7 +1868,7 @@ def wizard_step7():
     st.table(metrics_table)
     # Provide summary metrics similar to earlier summary for context
     summary = compute_summary(st.session_state)
-    st.subheader("Resumo Financeiro (Ano 1 – caso base)")
+    st.subheader("Resumo Gerencial (Ano 1 – Custeio Variável)")
     st.table(pd.DataFrame({"Categoria": summary.keys(), "Valor": summary.values()}))
     # Generate downloadable files based on base summary
     pdf_data = generate_pdf(summary)
