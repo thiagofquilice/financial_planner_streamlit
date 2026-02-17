@@ -225,16 +225,16 @@ def compute_summary(state: st.session_state) -> Dict[str, float]:
         state: Streamlit session_state object with collected data.
 
     Returns:
-        A dictionary summarising revenue, costs, opex, capex and approximate
+        A dictionary summarising revenue, costs, fixed expenses, investments and approximate
         profit based on the current inputs.
     """
     # Use the projection engine with no variation to compute base year values
-    projections, cashflows, capex_total = compute_projections(state, variation=1.0)
+    projections, cashflows, investments_total = compute_projections(state, variation=1.0)
     # The first element (year 1) holds the first full year of operations
     if len(projections) > 1:
         year1 = projections[1]
     else:
-        year1 = {"Receita": 0.0, "Custos": 0.0, "Opex": 0.0, "Lucro": 0.0}
+        year1 = {"Receita": 0.0, "Custos": 0.0, "Custos Fixos": 0.0, "Lucro": 0.0}
     receita = year1.get("Receita", 0.0)
     custos_variaveis = year1.get("Custos", 0.0)
     tributos = year1.get("Tributos", 0.0)
@@ -244,8 +244,8 @@ def compute_summary(state: st.session_state) -> Dict[str, float]:
         "Custos Variáveis Totais": custos_variaveis,
         "Tributos Variáveis (Simples)": tributos,
         "Margem de Contribuição": margem_contribuicao,
-        "Custos Fixos (Opex)": year1.get("Opex", 0.0),
-        "Capex Total": capex_total,
+        "Custos Fixos": year1.get("Custos Fixos", 0.0),
+        "Investimentos Totais": investments_total,
         "Resultado Operacional": year1.get("Lucro", 0.0),
     }
     return summary
@@ -254,7 +254,7 @@ def compute_summary(state: st.session_state) -> Dict[str, float]:
 def compute_projections(state: st.session_state, variation: float = 1.0) -> Tuple[List[Dict[str, float]], List[float], float]:
     """Compute multi‑year projections and cashflows.
 
-    This function generates annual projections of revenue, costs, opex,
+    This function generates annual projections of revenue, costs, fixed expenses,
     financing payments and profit, along with the corresponding cash flow
     series used in viability analysis. The "variation" parameter scales
     sales quantities to facilitate scenario analysis.
@@ -265,9 +265,9 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
 
     Returns:
         projections: A list of dicts per year (year 0 through horizon) with
-            keys ``Ano``, ``Receita``, ``Custos``, ``Opex``, ``Pagamento Empréstimo`` and ``Lucro``.
+            keys ``Ano``, ``Receita``, ``Custos``, ``Custos Fixos``, ``Pagamento Empréstimo`` and ``Lucro``.
         cashflows: A list of cash flows corresponding to each year.
-        capex_total: Total capital expenditure (used outside for summary).
+        investments_total: Total investments (used outside for summary).
     """
     # Number of years in the projection (horizon)
     n_years = max(int(state.get("horizon", 1) or 0), 1)
@@ -320,18 +320,18 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
             except Exception:
                 var_cost_per_unit += 0.0
         variable_cost_per_unit_list.append(var_cost_per_unit)
-    # Compute monthly opex across all categories
-    opex_month = 0.0
+    # Compute monthly fixed expenses across all categories
+    fixed_expenses_month = 0.0
     for cat in ["op", "adm", "sales"]:
-        for exp in state.get("opex", {}).get(cat, []):
+        for exp in state.get("fixed_expenses", {}).get(cat, []):
             val = float(exp.get("value", 0) or 0)
-            opex_month += val
-    opex_annual = opex_month * 12
-    # Compute capex
-    capex_total = 0.0
-    for asset in state.get("capex", []):
+            fixed_expenses_month += val
+    fixed_expenses_annual = fixed_expenses_month * 12
+    # Compute total investments
+    investments_total = 0.0
+    for asset in state.get("investments", []):
         val = float(asset.get("value", 0) or 0)
-        capex_total += val
+        investments_total += val
     # Compute financing
     financing = state.get("financing", {}) or {}
     loan_amount = float(financing.get("amount", 0.0) or 0.0)
@@ -351,14 +351,14 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
         if t == 0:
             revenue = 0.0
             cost = 0.0
-            opex = 0.0
+            fixed_expenses = 0.0
             loan_payment_year = 0.0
             tax_amount = 0.0
             profit = 0.0
-            capex_outflow = capex_total if capex_total else 0.0
+            investments_outflow = investments_total if investments_total else 0.0
             loan_inflow = loan_amount
-            # Cash flow at year 0: loan inflow minus capex outflow
-            cash_flow = loan_inflow - capex_outflow
+            # Cash flow at year 0: loan inflow minus investments outflow
+            cash_flow = loan_inflow - investments_outflow
         else:
             y = t - 1  # zero‑based year index
             # Revenue and cost adjusted by variation factor
@@ -374,7 +374,7 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
                 var_cost = variable_cost_per_unit_list[idx] * (qty_y * variation)
                 cost_total += direct_cost + var_cost
             cost = cost_total
-            opex = opex_annual
+            fixed_expenses = fixed_expenses_annual
             # Loan payment occurs up to "years" periods (starting in year 1)
             loan_payment_year = payment if (t <= years) else 0.0
             # Compute tax amount if enabled
@@ -385,21 +385,21 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
                 _, tax_amount = compute_simples_tax(revenue, str(annex))
             # Under variável costing, financing amortisation is not part of
             # operating result (DRE). It remains in cash flow only.
-            profit = revenue - cost - opex - tax_amount
+            profit = revenue - cost - fixed_expenses - tax_amount
             cash_flow = profit - loan_payment_year
         projections.append(
             {
                 "Ano": t,
                 "Receita": revenue,
                 "Custos": cost,
-                "Opex": opex,
+                "Custos Fixos": fixed_expenses,
                 "Pagamento Empréstimo": loan_payment_year,
                 "Tributos": tax_amount,
                 "Lucro": profit,
             }
         )
         cashflows.append(cash_flow)
-    return projections, cashflows, capex_total
+    return projections, cashflows, investments_total
 
 
 def compute_npv(cashflows: List[float], discount_rate: float) -> float:
@@ -516,7 +516,7 @@ def compute_payback(cashflows: List[float], discount_rate: float) -> Tuple[Optio
 # The original Excel model computes margin of contribution (MC), break‑even
 # revenue and quantities by product, and detailed cash flow projections.  The
 # functions below replicate that behaviour in Python.  They operate off the
-# existing session state (which holds revenue, costs, opex, capex and financing)
+# existing session state (which holds revenue, costs, fixed expenses, investments and financing)
 # and the variation factor chosen by the user.  These helpers are called
 # inside wizard_step7 to display results.
 
@@ -525,7 +525,7 @@ def compute_break_even(state: st.session_state, variation: float = 1.0) -> Optio
 
     The break‑even point is the level of revenue at which profit equals zero.
     We compute the margin of contribution (MC), its percentage, the total
-    fixed costs (Opex) and then derive the revenue needed to cover those
+    fixed costs and then derive the revenue needed to cover those
     fixed costs.  Results are based on year 1 of the projection and honour
     the chosen variation factor.
 
@@ -537,18 +537,18 @@ def compute_break_even(state: st.session_state, variation: float = 1.0) -> Optio
         A dictionary with keys:
             mc: total margin of contribution (revenue minus variable costs and taxes).
             mc_percent: MC divided by revenue (0–1).
-            fixed_costs: annual fixed costs (Opex).
+            fixed_costs: annual fixed costs.
             revenue_be: break‑even revenue (or None if mc_percent <= 0).
             product_breakdown: list of dicts with per‑product share and break‑even values.
     """
-    # Use projections to extract revenue, cost, opex and tax for year 1
-    projections, _cash, _capex = compute_projections(state, variation)
+    # Use projections to extract revenue, cost, fixed expenses and tax for year 1
+    projections, _cash, _investments = compute_projections(state, variation)
     if len(projections) < 2:
         return None
     year1 = projections[1]
     revenue = year1.get("Receita", 0.0)
     variable_cost = year1.get("Custos", 0.0)
-    fixed_costs = year1.get("Opex", 0.0)
+    fixed_costs = year1.get("Custos Fixos", 0.0)
     tax_amount = year1.get("Tributos", 0.0)
     # Margin of contribution includes taxes as variable because under Simples
     # Nacional the effective tax depends on revenue and therefore scales with
@@ -682,11 +682,11 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
             except Exception:
                 var_cost_unit += 0.0
         var_cost_per_unit_list.append(var_cost_unit)
-    # Fixed cost per month from opex
-    opex_total_monthly = 0.0
+    # Fixed cost per month from fixed-expense categories
+    fixed_expenses_total_monthly = 0.0
     for cat in ["op", "adm", "sales"]:
-        for exp in state.get("opex", {}).get(cat, []):
-            opex_total_monthly += float(exp.get("value", 0.0))
+        for exp in state.get("fixed_expenses", {}).get(cat, []):
+            fixed_expenses_total_monthly += float(exp.get("value", 0.0))
     # Financing: compute annual payment and convert to monthly
     fin = state.get("financing", {}) or {}
     loan_amount = float(fin.get("amount", 0.0))
@@ -718,13 +718,13 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
         for yr in range(horizon):
             _eff, _tax_amt = compute_simples_tax(revenue_years[yr], tax_annex)
             eff_rates[yr] = _eff
-    # CapEx outflows per month: negative value at the specified month index (0‑based)
-    capex_monthly = [0.0 for _ in range(months_total)]
-    for asset in state.get("capex", []):
+    # Investment outflows per month: negative value at the specified month index (0‑based)
+    investments_monthly = [0.0 for _ in range(months_total)]
+    for asset in state.get("investments", []):
         m_idx = int(asset.get("month", 0) or 0)
         val = float(asset.get("value", 0.0))
         if 0 <= m_idx < months_total:
-            capex_monthly[m_idx] -= val
+            investments_monthly[m_idx] -= val
     # Loan inflow occurs at month 0
     loan_inflow_monthly = [0.0 for _ in range(months_total)]
     if loan_amount > 0:
@@ -759,7 +759,7 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
         # After finishing products update prev_rev_per_prod list for next iteration
         prev_rev_per_prod = new_prev_rev_per_prod
         # Fixed cost for this month
-        fixed_cost_m = opex_total_monthly
+        fixed_cost_m = fixed_expenses_total_monthly
         # Tax for this month (accrual basis)
         tax_m = 0.0
         if tax_enabled:
@@ -771,7 +771,7 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
             # Spread annual payment evenly across 12 months
             fin_cf_m -= loan_payment_ann / 12.0 if years > 0 else 0.0
         # Investment cash flow for this month
-        invest_cf_m = capex_monthly[m]
+        invest_cf_m = investments_monthly[m]
         # Operational cash flow: cash receipts minus variable and fixed costs minus taxes
         oper_cf_m = cash_receipt_m - var_cost_m - fixed_cost_m - tax_m
         # Profit in competência follows custeio variável, excluding financing flows.
@@ -1127,8 +1127,8 @@ def init_state():
         "costs": {},
         # revenue_monthly: maps product index to a list of monthly dicts ({'price': p, 'qty': q})
         "revenue_monthly": {},
-        "opex": {"op": [], "adm": [], "sales": []},
-        "capex": [],
+        "fixed_expenses": {"op": [], "adm": [], "sales": []},
+        "investments": [],
         "financing": {},
         # variable_expenses will map each product index to a list of variable expenses.
         # Each expense has fields: desc (description) and value (per unit cost).
@@ -1184,8 +1184,8 @@ def render_step_index() -> None:
         "1. Projeto",
         "2. Receitas",
         "3. Custos",
-        "4. Opex",
-        "5. CapEx",
+        "4. Despesas Fixas",
+        "5. Investimentos",
         "6. Financiamento",
         "7. Resultados",
     ]
@@ -1260,8 +1260,8 @@ def wizard_step1():
             "revenue_monthly": st.session_state.get("revenue_monthly", {}),
             "costs": st.session_state.get("costs", {}),
             "variable_expenses": st.session_state.get("variable_expenses", {}),
-            "opex": st.session_state.get("opex", {}),
-            "capex": st.session_state.get("capex", []),
+            "fixed_expenses": st.session_state.get("fixed_expenses", {}),
+            "investments": st.session_state.get("investments", []),
             "financing": st.session_state.get("financing", {}),
             "calculate_tax": st.session_state.get("calculate_tax", False),
             "tax_annex": st.session_state.get("tax_annex", "I"),
@@ -1644,8 +1644,8 @@ def wizard_step3():
 
 
 def wizard_step4():
-    """Step 4: Operating expenses (Opex)."""
-    st.header("Etapa 4 · Despesas Operacionais (Opex)")
+    """Step 4: Operating expenses."""
+    st.header("Etapa 4 · Despesas Operacionais")
     # Display navigation index across all steps
     render_step_index()
     # Explanation for operating expenses
@@ -1671,15 +1671,15 @@ def wizard_step4():
     for cat_key, cat_name in categories:
         st.subheader(cat_name)
         # Render each expense for this category
-        for i, exp in enumerate(st.session_state.opex.get(cat_key, [])):
+        for i, exp in enumerate(st.session_state.fixed_expenses.get(cat_key, [])):
             col1, col2 = st.columns([3, 1])
             with col1:
-                desc = st.text_input("Descrição", value=exp.get("desc", ""), key=f"opex_desc_{cat_key}_{i}")
+                desc = st.text_input("Descrição", value=exp.get("desc", ""), key=f"fixed_expenses_desc_{cat_key}_{i}")
             with col2:
-                val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(exp.get("value", 0.0)), key=f"opex_val_{cat_key}_{i}")
-            st.session_state.opex[cat_key][i] = {"desc": desc, "value": val}
-        if st.button(f"+ Adicionar despesa {cat_name.lower()}", key=f"add_opex_{cat_key}"):
-            st.session_state.opex[cat_key].append({"desc": "", "value": 0.0})
+                val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(exp.get("value", 0.0)), key=f"fixed_expenses_val_{cat_key}_{i}")
+            st.session_state.fixed_expenses[cat_key][i] = {"desc": desc, "value": val}
+        if st.button(f"+ Adicionar despesa {cat_name.lower()}", key=f"add_fixed_expenses_{cat_key}"):
+            st.session_state.fixed_expenses[cat_key].append({"desc": "", "value": 0.0})
             safe_rerun()
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -1693,14 +1693,14 @@ def wizard_step4():
 
 
 def wizard_step5():
-    """Step 5: Investments (CapEx)."""
-    st.header("Etapa 5 · Investimentos (CapEx)")
+    """Step 5: Investments."""
+    st.header("Etapa 5 · Investimentos")
     # Display navigation index across all steps
     render_step_index()
     # Explanation for investments
     st.markdown(
         """
-        Os **investimentos (CapEx)** representam gastos em ativos de longa duração necessários para
+        Os **investimentos** representam gastos em ativos de longa duração necessários para
         iniciar ou ampliar o negócio. Exemplos:
 
         * **Indústria** – aquisição de máquinas e equipamentos, instalações, veículos e ferramentas.
@@ -1713,14 +1713,14 @@ def wizard_step5():
         conforme a legislação, embora este modelo simplificado não calcule depreciação.
         """
     )
-    for i, asset in enumerate(st.session_state.capex):
+    for i, asset in enumerate(st.session_state.investments):
         with st.expander(f"Ativo {i + 1}", expanded=True):
-            desc = st.text_input("Descrição", value=asset.get("desc", ""), key=f"capex_desc_{i}")
-            val = st.number_input("Valor (R$)", min_value=0.0, value=float(asset.get("value", 0.0)), key=f"capex_val_{i}")
-            month = st.number_input("Mês de aquisição", min_value=0, max_value=120, value=int(asset.get("month", 0)), step=1, key=f"capex_month_{i}")
-            st.session_state.capex[i] = {"desc": desc, "value": val, "month": month}
-    if st.button("+ Adicionar Ativo", key="add_capex"):
-        st.session_state.capex.append({"desc": "", "value": 0.0, "month": 0})
+            desc = st.text_input("Descrição", value=asset.get("desc", ""), key=f"investments_desc_{i}")
+            val = st.number_input("Valor (R$)", min_value=0.0, value=float(asset.get("value", 0.0)), key=f"investments_val_{i}")
+            month = st.number_input("Mês de aquisição", min_value=0, max_value=120, value=int(asset.get("month", 0)), step=1, key=f"investments_month_{i}")
+            st.session_state.investments[i] = {"desc": desc, "value": val, "month": month}
+    if st.button("+ Adicionar Ativo", key="add_investments"):
+        st.session_state.investments.append({"desc": "", "value": 0.0, "month": 0})
         safe_rerun()
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -1816,19 +1816,19 @@ def wizard_step7():
     variation_factor = 1.0 + variation_pct / 100.0
     discount_rate = discount_rate_input / 100.0
     # Compute projections and cash flows for the chosen scenario
-    projections, cashflows, capex_total = compute_projections(st.session_state, variation=variation_factor)
+    projections, cashflows, investments_total = compute_projections(st.session_state, variation=variation_factor)
     # Display income statement (DRE) excluding year 0
     st.subheader("Demonstração do Resultado (Regime de Competência · Custeio Variável)")
     df_dre = pd.DataFrame(
         [p for p in projections[1:]],
-        columns=["Ano", "Receita", "Custos", "Opex", "Tributos", "Lucro"],
+        columns=["Ano", "Receita", "Custos", "Custos Fixos", "Tributos", "Lucro"],
     )
     st.dataframe(
         df_dre.style.format(
             {
                 "Receita": "R$ {:,.2f}",
                 "Custos": "R$ {:,.2f}",
-                "Opex": "R$ {:,.2f}",
+                "Custos Fixos": "R$ {:,.2f}",
                 "Tributos": "R$ {:,.2f}",
                 "Lucro": "R$ {:,.2f}",
             }
