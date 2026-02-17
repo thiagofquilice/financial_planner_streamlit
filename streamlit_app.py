@@ -1258,13 +1258,25 @@ def render_step_index() -> None:
     a step of the wizard. Clicking a button updates the current step in
     ``st.session_state`` and triggers a rerun to navigate accordingly.
     """
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
+            white-space: nowrap;
+            word-break: keep-all;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     step_labels = [
-        "1. Identificação do Projeto",
-        "2. Estrutura de Receitas",
-        "3. Gastos Variáveis",
-        "4. Gastos Fixos",
-        "5. Investimentos",
-        "6. Resultados e Análises",
+        "Etapa 1 · Identificação do Projeto",
+        "Etapa 2 · Estrutura de Receitas",
+        "Etapa 3 · Gastos Variáveis",
+        "Etapa 4 · Gastos Fixos",
+        "Etapa 5 · Investimentos",
+        "Etapa 6 · Resultados e Análises",
     ]
     cols = st.columns(len(step_labels))
     for idx, label in enumerate(step_labels):
