@@ -1119,6 +1119,7 @@ def compute_simples_tax(revenue: float, annex: str) -> Tuple[float, float]:
 def init_state():
     """Initialize session state variables if they do not exist."""
     defaults = {
+        "view": "home",
         "module": "Planejamento financeiro",
         "step": 1,
         "project_name": "",
@@ -1147,6 +1148,65 @@ def init_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def go_to_home() -> None:
+    """Return to the flow selection screen."""
+
+    st.session_state.view = "home"
+    safe_rerun()
+
+
+def open_module(module_name: str) -> None:
+    """Select module and open the corresponding flow."""
+
+    st.session_state.module = module_name
+    st.session_state.view = "module"
+    safe_rerun()
+
+
+def render_home_screen() -> None:
+    """Render initial screen explaining each available flow."""
+
+    st.title("Assistente Financeiro para Startups")
+    st.markdown(
+        """
+        Escolha abaixo qual jornada você deseja iniciar. Você pode voltar para esta tela a qualquer momento
+        usando o botão **“Trocar fluxo”**.
+        """
+    )
+
+    planning_col, governance_col = st.columns(2)
+
+    with planning_col:
+        st.markdown("### 📈 Planejamento financeiro")
+        st.markdown(
+            """
+            Ideal para estruturar projeções de receita, custos, investimentos e viabilidade.
+
+            **Você vai encontrar:**
+            - etapas guiadas de cadastro do negócio;
+            - DRE/DFC e indicadores (VPL, TIR e payback);
+            - exportação em PDF e Excel.
+            """
+        )
+        if st.button("Iniciar Planejamento Financeiro", use_container_width=True):
+            open_module("Planejamento financeiro")
+
+    with governance_col:
+        st.markdown("### 🧭 Avaliação de governança")
+        st.markdown(
+            """
+            Ideal para avaliar a maturidade dos acordos entre sócios na fase inicial da startup.
+
+            **Você vai encontrar:**
+            - perguntas objetivas sobre alinhamento e regras societárias;
+            - recomendações práticas por tema;
+            - resumo do estágio atual de governança.
+            """
+        )
+        if st.button("Iniciar Avaliação de Governança", use_container_width=True):
+            open_module("Avaliação de governança corporativa (startups)")
 
 
 # Utility to rerun Streamlit script in a version‑agnostic way.
@@ -1228,6 +1288,9 @@ def render_planning_sidebar() -> None:
     progress = min(max(current_step / len(step_labels), 0.0), 1.0)
 
     with st.sidebar:
+        if st.button("← Trocar fluxo", key="planning_back_home", use_container_width=True):
+            go_to_home()
+
         st.subheader("Progresso do planejamento")
         st.progress(progress)
         st.caption(f"Etapa {current_step} de {len(step_labels)}")
@@ -2129,6 +2192,8 @@ def show_governance_assessment() -> None:
         geral do estágio de governança.
         """
     )
+    if st.button("← Trocar fluxo", key="governance_back_home"):
+        go_to_home()
 
     existing_report = st.session_state.get("governance_report") or {}
     with st.form("governance_form"):
@@ -2191,21 +2256,10 @@ def show_governance_assessment() -> None:
 def main():
     st.set_page_config(page_title="Assistente Financeiro", layout="centered")
     init_state()
-    module_options = [
-        "Planejamento financeiro",
-        "Avaliação de governança corporativa (startups)",
-    ]
-    selected_module = st.radio(
-        "Escolha o fluxo que deseja utilizar:",
-        options=module_options,
-        index=module_options.index(st.session_state.get("module", module_options[0])),
-        horizontal=True,
-    )
-    if selected_module != st.session_state.module:
-        st.session_state.module = selected_module
-        if selected_module == "Planejamento financeiro":
-            st.session_state.step = st.session_state.get("step", 1) or 1
-        safe_rerun()
+
+    if st.session_state.get("view") == "home":
+        render_home_screen()
+        return
 
     if st.session_state.module == "Planejamento financeiro":
         render_planning_sidebar()
@@ -2224,6 +2278,7 @@ def main():
             wizard_step7()
     else:
         show_governance_assessment()
+
 
 
 if __name__ == "__main__":
