@@ -1275,6 +1275,31 @@ def safe_rerun() -> None:
     st.stop()
 
 
+def _normalize_indexed_dict_keys(value: Any) -> Dict[int, Any]:
+    """Return a dict with integer keys for structures indexed by product id."""
+
+    if not isinstance(value, dict):
+        return {}
+    normalized: Dict[int, Any] = {}
+    for k, v in value.items():
+        try:
+            normalized[int(k)] = v
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def normalize_loaded_project_data(loaded: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize uploaded project JSON to expected in-memory shapes."""
+
+    data = dict(loaded or {})
+    for indexed_key in ["revenue_monthly", "costs", "variable_expenses"]:
+        data[indexed_key] = _normalize_indexed_dict_keys(data.get(indexed_key, {}))
+    if "financing" in data and not isinstance(data["financing"], dict):
+        data["financing"] = {}
+    return data
+
+
 def format_currency_br(value: float) -> str:
     """Format currency using Brazilian separators with two decimals."""
 
@@ -1503,6 +1528,7 @@ def wizard_step1():
             "fixed_expenses": st.session_state.get("fixed_expenses", {}),
             "fixed_costs": st.session_state.get("fixed_costs", {}),
             "investments": st.session_state.get("investments", []),
+            "financing": st.session_state.get("financing", {}),
             "calculate_tax": st.session_state.get("calculate_tax", False),
             "tax_annex": st.session_state.get("tax_annex", "I"),
         }
@@ -1518,7 +1544,7 @@ def wizard_step1():
         uploaded = st.file_uploader("Carregar projeto (JSON)", type=["json"], key="upload_project_json")
         if uploaded is not None:
             try:
-                loaded = json.loads(uploaded.read().decode("utf-8"))
+                loaded = normalize_loaded_project_data(json.loads(uploaded.read().decode("utf-8")))
                 # Update session state with loaded values
                 for k, v in loaded.items():
                     st.session_state[k] = v
@@ -1828,7 +1854,8 @@ def wizard_step3():
             st.markdown(f"### (A) Quadro de Custos Variáveis – do Item {product_name}")
 
             costs_editor_key = f"costs_table_{prod_index}"
-            persisted_costs_df = st.session_state.get(costs_editor_key)
+            costs_buffer_key = f"{costs_editor_key}__buffer"
+            persisted_costs_df = st.session_state.get(costs_buffer_key)
             if isinstance(persisted_costs_df, pd.DataFrame):
                 df_costs = persisted_costs_df.copy()
             else:
@@ -1888,7 +1915,8 @@ def wizard_step3():
             st.markdown(f"### (B) Quadro de Despesas Variáveis – do Item {product_name}")
 
             expenses_editor_key = f"var_exp_table_{prod_index}"
-            persisted_exp_df = st.session_state.get(expenses_editor_key)
+            expenses_buffer_key = f"{expenses_editor_key}__buffer"
+            persisted_exp_df = st.session_state.get(expenses_buffer_key)
             if isinstance(persisted_exp_df, pd.DataFrame):
                 df_exp = persisted_exp_df.copy()
             else:
@@ -1952,8 +1980,8 @@ def wizard_step3():
 
         # Keep a copy of the latest edited tables in session_state to avoid
         # transient losses when Streamlit reruns while the user is editing.
-        st.session_state[costs_editor_key] = edited_costs.copy()
-        st.session_state[expenses_editor_key] = edited_exp.copy()
+        st.session_state[costs_buffer_key] = edited_costs.copy()
+        st.session_state[expenses_buffer_key] = edited_exp.copy()
 
         st.divider()
     col1, col2 = st.columns([1, 1])
