@@ -1941,17 +1941,32 @@ def wizard_step7():
         if "Participação (%)" in df_be_prod.columns:
             df_be_prod["Participação (%)"] = df_be_prod["Participação (%)"] * 100.0
 
-    analysis_options = [
-        "Resultados · DRE",
-        "Resultados · DFC",
-        "Análises · Viabilidade",
+    result_options = [
+        "DRE",
+        "DFC",
         "Resumo Gerencial",
-        "Análises · Ponto de Equilíbrio",
-        "Resultados · Projeções Mensais",
-        "Resultados · Projeções Anuais",
-        "Exportações",
+        "Projeções Mensais",
+        "Projeções Anuais",
     ]
-    selected = st.radio("Selecione a análise", analysis_options, index=0, vertical=True)
+    analysis_options = [
+        "Viabilidade",
+        "Ponto de Equilíbrio",
+    ]
+    utility_options = ["Exportações"]
+
+    section = st.radio(
+        "Selecione a seção",
+        ["Resultados", "Análises", "Utilitários"],
+        index=0,
+        horizontal=True,
+    )
+
+    if section == "Resultados":
+        selected = st.radio("Selecione o resultado", result_options, index=0, vertical=True)
+    elif section == "Análises":
+        selected = st.radio("Selecione a análise", analysis_options, index=0, vertical=True)
+    else:
+        selected = st.radio("Selecione o utilitário", utility_options, index=0, vertical=True)
 
     currency_fmt = {
         "Receita": lambda x: format_currency_br(x),
@@ -1963,22 +1978,22 @@ def wizard_step7():
         "Valor": lambda x: format_currency_br(x),
     }
 
-    if selected == analysis_options[0]:
+    if selected == "DRE":
         st.subheader("Demonstração do Resultado (Regime de Competência · Custeio Variável)")
         st.dataframe(df_dre.style.format(currency_fmt), use_container_width=True)
-    elif selected == analysis_options[1]:
+    elif selected == "DFC":
         st.subheader("Demonstração dos Fluxos de Caixa (Regime de Caixa)")
         st.dataframe(df_fc.style.format({"Fluxo de Caixa": lambda x: format_currency_br(x)}), use_container_width=True)
         st.line_chart(df_fc.set_index("Ano"))
-    elif selected == analysis_options[2]:
+    elif selected == "Viabilidade":
         st.subheader("Análise de Viabilidade")
         st.table(metrics_table)
-    elif selected == analysis_options[3]:
+    elif selected == "Resumo Gerencial":
         render_summary_cards(summary)
         st.subheader("Resumo Gerencial (Ano 1 – Custeio Variável)")
         sum_df = pd.DataFrame({"Categoria": list(summary.keys()), "Valor": list(summary.values())})
         st.dataframe(sum_df.style.format({"Valor": lambda x: format_currency_br(x)}), use_container_width=True)
-    elif selected == analysis_options[4]:
+    elif selected == "Ponto de Equilíbrio":
         if be:
             st.subheader("Ponto de Equilíbrio (PE) e Margem de Contribuição")
             st.markdown(f"**Margem de Contribuição (MC):** {format_currency_br(be['mc'])}")
@@ -2005,7 +2020,7 @@ def wizard_step7():
             )
         else:
             st.info("Sem dados suficientes para calcular o ponto de equilíbrio.")
-    elif selected == analysis_options[5]:
+    elif selected == "Projeções Mensais":
         st.subheader("Projeções Mensais – Gastos e Resultado (Competência)")
         df_month_dre = df_month[["Mês", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]]
         st.dataframe(
@@ -2033,7 +2048,7 @@ def wizard_step7():
             }),
             use_container_width=True,
         )
-    elif selected == analysis_options[6]:
+    elif selected == "Projeções Anuais":
         st.subheader("Projeções Anuais – Gastos e Resultado (Competência)")
         df_ann_dre = df_ann[["Ano", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]]
         st.dataframe(
