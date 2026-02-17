@@ -1767,7 +1767,7 @@ def wizard_step2():
 
 def wizard_step3():
     """Step 3: Variable spending split into costs and expenses per product."""
-    render_step_header(3, "Gastos Variáveis", "Informe os custos variáveis e despesas variáveis por produto.")
+    render_step_header(3, "Gastos Variáveis", "Informe os custos variáveis e despesas variáveis por item da etapa 2.")
     # Explanation for direct costs
     st.markdown(
         """
@@ -1786,7 +1786,7 @@ def wizard_step3():
         Você também pode adicionar **despesas variáveis** por produto – valores que dependem da
         quantidade vendida, como taxas de cartão, frete por unidade ou comissões de venda.  
 
-        Para cada produto/serviço da etapa anterior, preencha dois quadros:
+        Para cada item da etapa anterior, preencha dois quadros:
 
         * **Quadro de Custos Variáveis**
         * **Quadro de Despesas Variáveis**
@@ -1798,11 +1798,10 @@ def wizard_step3():
         **Operacional** ou **Vendas**.
         """
     )
-    # Loop through each product/service defined in revenue step
+    # Loop through each item defined in Step 2
     for prod_index, product in enumerate(st.session_state.revenue):
         product_name = product.get("name") or f"Produto/Serviço {prod_index + 1}"
-        st.subheader(f"Gastos Variáveis de {product_name}")
-        costs_col, expenses_col = st.columns(2)
+        st.subheader(f"Seção do Item {prod_index + 1}: {product_name}")
 
         # Ensure a list of cost items exists for this product index
         if prod_index not in st.session_state.costs:
@@ -1812,123 +1811,135 @@ def wizard_step3():
         if prod_index not in st.session_state.variable_expenses:
             st.session_state.variable_expenses[prod_index] = []
 
-        with costs_col:
-            with st.container(border=True):
-                st.markdown("### Quadro de Custos Variáveis")
-                st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total")
-                # Render each cost item for this product
-                for i, item in enumerate(st.session_state.costs[prod_index]):
-                    with st.expander(f"Item de custo {i + 1}", expanded=True):
-                        name = st.text_input(
-                            "Item", value=item.get("name", ""), key=f"cost_name_{prod_index}_{i}"
-                        )
-                        qty = st.number_input(
-                            "Quantidade unitária",
-                            min_value=0.0,
-                            value=float(item.get("qty", 0.0)),
-                            step=1.0,
-                            key=f"cost_qty_{prod_index}_{i}",
-                        )
-                        unit = st.number_input(
-                            "Valor unitário (R$)",
-                            min_value=0.0,
-                            value=float(item.get("unit", 0.0)),
-                            format="%.2f",
-                            key=f"cost_unit_{prod_index}_{i}",
-                        )
-                        total_item = float(qty) * float(unit)
-                        st.text_input(
-                            "Valor total",
-                            value=format_currency_br(total_item),
-                            key=f"cost_total_{prod_index}_{i}",
-                            disabled=True,
-                        )
-                        st.session_state.costs[prod_index][i] = {
-                            "name": name,
-                            "qty": qty,
-                            "unit": unit,
-                            "prazo_pct": float(item.get("prazo_pct", item.get("term", 0.0)) or 0.0),
-                            "prazo_parcelas": int(item.get("prazo_parcelas", 1) or 1),
-                        }
-
-                total_costs = sum(
-                    float(c.get("qty", 0.0) or 0.0) * float(c.get("unit", 0.0) or 0.0)
-                    for c in st.session_state.costs[prod_index]
-                )
-                st.markdown(f"**Somatório do quadro:** {format_currency_br(total_costs)}")
-
-                if st.button("+ Adicionar custo", key=f"add_cost_{prod_index}"):
-                    st.session_state.costs[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
-                    safe_rerun()
-
-        with expenses_col:
-            with st.container(border=True):
-                st.markdown("### Quadro de Despesas Variáveis")
-                st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total")
-                # Render each variable expense item using the same structure as cost items
-                for vi, vitem in enumerate(st.session_state.variable_expenses[prod_index]):
-                    with st.expander(f"Despesa variável {vi + 1}", expanded=True):
-                        name = st.text_input(
-                            "Item",
-                            value=vitem.get("name", ""),
-                            key=f"var_name_{prod_index}_{vi}",
-                        )
-                        qty = st.number_input(
-                            "Quantidade unitária",
-                            min_value=0.0,
-                            value=float(vitem.get("qty", 0.0)),
-                            step=1.0,
-                            key=f"var_qty_{prod_index}_{vi}",
-                        )
-                        unit = st.number_input(
-                            "Valor unitário (R$)",
-                            min_value=0.0,
-                            value=float(vitem.get("unit", 0.0)),
-                            format="%.2f",
-                            key=f"var_unit_{prod_index}_{vi}",
-                        )
-                        classification = st.selectbox(
-                            "Classificação",
-                            options=["Operacional", "Vendas"],
-                            index=0
-                            if str(vitem.get("classification", "Operacional")) == "Operacional"
-                            else 1,
-                            key=f"var_class_{prod_index}_{vi}",
-                        )
-                        total_item = float(qty) * float(unit)
-                        st.text_input(
-                            "Valor total",
-                            value=format_currency_br(total_item),
-                            key=f"var_total_{prod_index}_{vi}",
-                            disabled=True,
-                        )
-                        st.session_state.variable_expenses[prod_index][vi] = {
-                            "name": name,
-                            "qty": qty,
-                            "unit": unit,
-                            "classification": classification,
-                            "prazo_pct": float(vitem.get("prazo_pct", vitem.get("term", 0.0)) or 0.0),
-                            "prazo_parcelas": int(vitem.get("prazo_parcelas", 1) or 1),
-                        }
-
-                total_expenses = sum(
-                    float(v.get("qty", 0.0) or 0.0) * float(v.get("unit", 0.0) or 0.0)
-                    for v in st.session_state.variable_expenses[prod_index]
-                )
-                st.markdown(f"**Somatório do quadro:** {format_currency_br(total_expenses)}")
-
-                if st.button("+ Adicionar despesa", key=f"add_var_exp_{prod_index}"):
-                    st.session_state.variable_expenses[prod_index].append(
-                        {
-                            "name": "",
-                            "qty": 0.0,
-                            "unit": 0.0,
-                            "classification": "Operacional",
-                            "prazo_pct": 0.0,
-                            "prazo_parcelas": 1,
-                        }
+        with st.container(border=True):
+            st.markdown(f"### (A) Quadro de Custos Variáveis – do Item {product_name}")
+            st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total")
+            # Render each cost item for this product
+            for i, item in enumerate(st.session_state.costs[prod_index]):
+                with st.expander(f"Item de custo {i + 1}", expanded=True):
+                    name = st.text_input(
+                        "Item", value=item.get("name", ""), key=f"cost_name_{prod_index}_{i}"
                     )
-                    safe_rerun()
+                    qty = st.number_input(
+                        "Quantidade unitária",
+                        min_value=0.0,
+                        value=float(item.get("qty", 0.0)),
+                        step=1.0,
+                        key=f"cost_qty_{prod_index}_{i}",
+                    )
+                    unit = st.number_input(
+                        "Valor unitário (R$)",
+                        min_value=0.0,
+                        value=float(item.get("unit", 0.0)),
+                        format="%.2f",
+                        key=f"cost_unit_{prod_index}_{i}",
+                    )
+                    total_item = float(qty) * float(unit)
+                    st.text_input(
+                        "Valor total",
+                        value=format_currency_br(total_item),
+                        key=f"cost_total_{prod_index}_{i}",
+                        disabled=True,
+                    )
+                    st.session_state.costs[prod_index][i] = {
+                        "name": name,
+                        "qty": qty,
+                        "unit": unit,
+                        "prazo_pct": float(item.get("prazo_pct", item.get("term", 0.0)) or 0.0),
+                        "prazo_parcelas": int(item.get("prazo_parcelas", 1) or 1),
+                    }
+
+            total_costs = sum(
+                float(c.get("qty", 0.0) or 0.0) * float(c.get("unit", 0.0) or 0.0)
+                for c in st.session_state.costs[prod_index]
+            )
+            st.markdown(f"**Total de Custos Variáveis do Item {product_name}: {format_currency_br(total_costs)}**")
+
+            if st.button("+ Adicionar custo", key=f"add_cost_{prod_index}"):
+                st.session_state.costs[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
+                safe_rerun()
+
+        with st.container(border=True):
+            st.markdown(f"### (B) Quadro de Despesas Variáveis – do Item {product_name}")
+            st.markdown("**Colunas:** Item · Quantidade unitária · Valor unitário · Valor total")
+            # Render each variable expense item using the same structure as cost items
+            for vi, vitem in enumerate(st.session_state.variable_expenses[prod_index]):
+                with st.expander(f"Despesa variável {vi + 1}", expanded=True):
+                    name = st.text_input(
+                        "Item",
+                        value=vitem.get("name", ""),
+                        key=f"var_name_{prod_index}_{vi}",
+                    )
+                    qty = st.number_input(
+                        "Quantidade unitária",
+                        min_value=0.0,
+                        value=float(vitem.get("qty", 0.0)),
+                        step=1.0,
+                        key=f"var_qty_{prod_index}_{vi}",
+                    )
+                    unit = st.number_input(
+                        "Valor unitário (R$)",
+                        min_value=0.0,
+                        value=float(vitem.get("unit", 0.0)),
+                        format="%.2f",
+                        key=f"var_unit_{prod_index}_{vi}",
+                    )
+                    classification = st.selectbox(
+                        "Classificação",
+                        options=["Operacional", "Vendas"],
+                        index=0
+                        if str(vitem.get("classification", "Operacional")) == "Operacional"
+                        else 1,
+                        key=f"var_class_{prod_index}_{vi}",
+                    )
+                    total_item = float(qty) * float(unit)
+                    st.text_input(
+                        "Valor total",
+                        value=format_currency_br(total_item),
+                        key=f"var_total_{prod_index}_{vi}",
+                        disabled=True,
+                    )
+                    st.session_state.variable_expenses[prod_index][vi] = {
+                        "name": name,
+                        "qty": qty,
+                        "unit": unit,
+                        "classification": classification,
+                        "prazo_pct": float(vitem.get("prazo_pct", vitem.get("term", 0.0)) or 0.0),
+                        "prazo_parcelas": int(vitem.get("prazo_parcelas", 1) or 1),
+                    }
+
+            total_expenses = sum(
+                float(v.get("qty", 0.0) or 0.0) * float(v.get("unit", 0.0) or 0.0)
+                for v in st.session_state.variable_expenses[prod_index]
+            )
+            subtotal_operacional = sum(
+                float(v.get("qty", 0.0) or 0.0) * float(v.get("unit", 0.0) or 0.0)
+                for v in st.session_state.variable_expenses[prod_index]
+                if str(v.get("classification", "Operacional")) == "Operacional"
+            )
+            subtotal_vendas = sum(
+                float(v.get("qty", 0.0) or 0.0) * float(v.get("unit", 0.0) or 0.0)
+                for v in st.session_state.variable_expenses[prod_index]
+                if str(v.get("classification", "Operacional")) == "Vendas"
+            )
+            st.markdown(
+                f"**Total de Despesas Variáveis do Item {product_name}: {format_currency_br(total_expenses)}**"
+            )
+            st.markdown(f"Subtotal Operacional: **{format_currency_br(subtotal_operacional)}**")
+            st.markdown(f"Subtotal Vendas: **{format_currency_br(subtotal_vendas)}**")
+
+            if st.button("+ Adicionar despesa", key=f"add_var_exp_{prod_index}"):
+                st.session_state.variable_expenses[prod_index].append(
+                    {
+                        "name": "",
+                        "qty": 0.0,
+                        "unit": 0.0,
+                        "classification": "Operacional",
+                        "prazo_pct": 0.0,
+                        "prazo_parcelas": 1,
+                    }
+                )
+                safe_rerun()
 
         st.divider()
     # Navigation buttons
