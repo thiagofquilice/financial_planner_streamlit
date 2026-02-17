@@ -2114,7 +2114,7 @@ def show_governance_assessment() -> None:
 
 
 def main():
-    st.set_page_config(page_title="Assistente Financeiro", page_icon="💰", layout="centered")
+    st.set_page_config(page_title="Assistente Financeiro", layout="centered")
     init_state()
     module_options = [
         "Planejamento financeiro",
