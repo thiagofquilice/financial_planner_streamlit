@@ -1768,6 +1768,12 @@ def wizard_step2():
 def wizard_step3():
     """Step 3: Variable spending split into costs and expenses per product."""
 
+    def _first_year_units_sold(product_index: int) -> float:
+        """Return the projected sold units for the first 12 months of a product."""
+        horizon_years = max(int(st.session_state.get("horizon", 1) or 0), 1)
+        monthly_data = normalize_monthly_series(st.session_state, product_index, horizon_years)
+        return float(sum(float(month.get("qty", 0.0) or 0.0) for month in monthly_data[:12]))
+
     def _coerce_float(x):
         if x is None:
             return 0.0
@@ -1821,25 +1827,30 @@ def wizard_step3():
         with st.container(border=True):
             st.markdown(f"### (A) Quadro de Custos Variáveis – do Item {product_name}")
 
-            costs_list = st.session_state.costs.get(prod_index, [])
-            df_costs = pd.DataFrame(
-                [
-                    {
-                        "Item": _coerce_str(row.get("name")),
-                        "Quantidade unitária": _coerce_float(row.get("qty")),
-                        "Valor unitário": _coerce_float(row.get("unit")),
-                    }
-                    for row in costs_list
-                ]
-            )
-            if df_costs.empty:
-                df_costs = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário"])
+            costs_editor_key = f"costs_table_{prod_index}"
+            persisted_costs_df = st.session_state.get(costs_editor_key)
+            if isinstance(persisted_costs_df, pd.DataFrame):
+                df_costs = persisted_costs_df.copy()
+            else:
+                costs_list = st.session_state.costs.get(prod_index, [])
+                df_costs = pd.DataFrame(
+                    [
+                        {
+                            "Item": _coerce_str(row.get("name")),
+                            "Quantidade unitária": _coerce_float(row.get("qty")),
+                            "Valor unitário": _coerce_float(row.get("unit")),
+                        }
+                        for row in costs_list
+                    ]
+                )
+                if df_costs.empty:
+                    df_costs = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário"])
 
             edited_costs = st.data_editor(
                 df_costs,
                 use_container_width=True,
                 num_rows="dynamic",
-                key=f"costs_table_{prod_index}",
+                key=costs_editor_key,
                 column_config={
                     "Item": st.column_config.TextColumn("Item"),
                     "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
@@ -1851,8 +1862,13 @@ def wizard_step3():
             edited_costs["Valor unitário"] = pd.to_numeric(edited_costs["Valor unitário"], errors="coerce").fillna(0.0)
             edited_costs["Valor total"] = edited_costs["Quantidade unitária"] * edited_costs["Valor unitário"]
 
-            total_costs = float(edited_costs["Valor total"].sum()) if not edited_costs.empty else 0.0
-            st.markdown(f"**Total de Custos Variáveis do Item {product_name}: {format_currency_br(total_costs)}**")
+            sold_units = _first_year_units_sold(prod_index)
+            variable_cost_per_unit = float(edited_costs["Valor total"].sum()) if not edited_costs.empty else 0.0
+            total_costs = sold_units * variable_cost_per_unit
+
+            st.markdown(f"Total de unidades vendidas (12 meses): **{sold_units:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.markdown(f"Custo variável unitário: **{format_currency_br(variable_cost_per_unit)}**")
+            st.markdown(f"**Total de custo variável do Item {product_name}: {format_currency_br(total_costs)}**")
 
             st.session_state.costs[prod_index] = [
                 {
@@ -1871,20 +1887,25 @@ def wizard_step3():
         with st.container(border=True):
             st.markdown(f"### (B) Quadro de Despesas Variáveis – do Item {product_name}")
 
-            exp_list = st.session_state.variable_expenses.get(prod_index, [])
-            df_exp = pd.DataFrame(
-                [
-                    {
-                        "Item": _coerce_str(row.get("name")),
-                        "Quantidade unitária": _coerce_float(row.get("qty")),
-                        "Valor unitário": _coerce_float(row.get("unit")),
-                        "Classificação": _coerce_str(row.get("classification") or "Operacional"),
-                    }
-                    for row in exp_list
-                ]
-            )
-            if df_exp.empty:
-                df_exp = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário", "Classificação"])
+            expenses_editor_key = f"var_exp_table_{prod_index}"
+            persisted_exp_df = st.session_state.get(expenses_editor_key)
+            if isinstance(persisted_exp_df, pd.DataFrame):
+                df_exp = persisted_exp_df.copy()
+            else:
+                exp_list = st.session_state.variable_expenses.get(prod_index, [])
+                df_exp = pd.DataFrame(
+                    [
+                        {
+                            "Item": _coerce_str(row.get("name")),
+                            "Quantidade unitária": _coerce_float(row.get("qty")),
+                            "Valor unitário": _coerce_float(row.get("unit")),
+                            "Classificação": _coerce_str(row.get("classification") or "Operacional"),
+                        }
+                        for row in exp_list
+                    ]
+                )
+                if df_exp.empty:
+                    df_exp = pd.DataFrame(columns=["Item", "Quantidade unitária", "Valor unitário", "Classificação"])
 
             df_exp["Classificação"] = df_exp["Classificação"].apply(lambda x: "Vendas" if str(x) == "Vendas" else "Operacional")
 
@@ -1892,7 +1913,7 @@ def wizard_step3():
                 df_exp,
                 use_container_width=True,
                 num_rows="dynamic",
-                key=f"var_exp_table_{prod_index}",
+                key=expenses_editor_key,
                 column_config={
                     "Item": st.column_config.TextColumn("Item"),
                     "Quantidade unitária": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=1.0),
@@ -1928,6 +1949,11 @@ def wizard_step3():
                 or _coerce_float(row["Quantidade unitária"]) != 0.0
                 or _coerce_float(row["Valor unitário"]) != 0.0
             ]
+
+        # Keep a copy of the latest edited tables in session_state to avoid
+        # transient losses when Streamlit reruns while the user is editing.
+        st.session_state[costs_editor_key] = edited_costs.copy()
+        st.session_state[expenses_editor_key] = edited_exp.copy()
 
         st.divider()
     col1, col2 = st.columns([1, 1])
