@@ -320,12 +320,13 @@ def compute_projections(state: st.session_state, variation: float = 1.0) -> Tupl
             except Exception:
                 var_cost_per_unit += 0.0
         variable_cost_per_unit_list.append(var_cost_per_unit)
-    # Compute monthly fixed expenses across all categories
+    # Compute monthly fixed spending across all categories (costs + expenses)
     fixed_expenses_month = 0.0
     for cat in ["op", "adm", "sales"]:
-        for exp in state.get("fixed_expenses", {}).get(cat, []):
-            val = float(exp.get("value", 0) or 0)
-            fixed_expenses_month += val
+        for item in state.get("fixed_costs", {}).get(cat, []):
+            fixed_expenses_month += float(item.get("value", 0) or 0)
+        for item in state.get("fixed_expenses", {}).get(cat, []):
+            fixed_expenses_month += float(item.get("value", 0) or 0)
     fixed_expenses_annual = fixed_expenses_month * 12
     # Compute total investments
     investments_total = 0.0
@@ -682,11 +683,13 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
             except Exception:
                 var_cost_unit += 0.0
         var_cost_per_unit_list.append(var_cost_unit)
-    # Fixed cost per month from fixed-expense categories
+    # Fixed spending per month from categories (costs + expenses)
     fixed_expenses_total_monthly = 0.0
     for cat in ["op", "adm", "sales"]:
-        for exp in state.get("fixed_expenses", {}).get(cat, []):
-            fixed_expenses_total_monthly += float(exp.get("value", 0.0))
+        for item in state.get("fixed_costs", {}).get(cat, []):
+            fixed_expenses_total_monthly += float(item.get("value", 0.0))
+        for item in state.get("fixed_expenses", {}).get(cat, []):
+            fixed_expenses_total_monthly += float(item.get("value", 0.0))
     # Financing: compute annual payment and convert to monthly
     fin = state.get("financing", {}) or {}
     loan_amount = float(fin.get("amount", 0.0))
@@ -1128,6 +1131,7 @@ def init_state():
         # revenue_monthly: maps product index to a list of monthly dicts ({'price': p, 'qty': q})
         "revenue_monthly": {},
         "fixed_expenses": {"op": [], "adm": [], "sales": []},
+        "fixed_costs": {"op": [], "adm": [], "sales": []},
         "investments": [],
         "financing": {},
         # variable_expenses will map each product index to a list of variable expenses.
@@ -1183,8 +1187,8 @@ def render_step_index() -> None:
     step_labels = [
         "1. Projeto",
         "2. Receitas",
-        "3. Custos",
-        "4. Despesas Fixas",
+        "3. Gastos Variáveis",
+        "4. Gastos Fixos",
         "5. Investimentos",
         "6. Financiamento",
         "7. Resultados",
@@ -1261,6 +1265,7 @@ def wizard_step1():
             "costs": st.session_state.get("costs", {}),
             "variable_expenses": st.session_state.get("variable_expenses", {}),
             "fixed_expenses": st.session_state.get("fixed_expenses", {}),
+            "fixed_costs": st.session_state.get("fixed_costs", {}),
             "investments": st.session_state.get("investments", []),
             "financing": st.session_state.get("financing", {}),
             "calculate_tax": st.session_state.get("calculate_tax", False),
@@ -1519,8 +1524,8 @@ def wizard_step2():
 
 
 def wizard_step3():
-    """Step 3: Direct costs linked to each product/service."""
-    st.header("Etapa 3 · Custos Variáveis Diretos")
+    """Step 3: Variable spending split into costs and expenses per product."""
+    st.header("Etapa 3 · Gastos Variáveis")
     # Display navigation index across all steps
     render_step_index()
     # Explanation for direct costs
@@ -1548,7 +1553,7 @@ def wizard_step3():
     # Loop through each product/service defined in revenue step
     for prod_index, product in enumerate(st.session_state.revenue):
         product_name = product.get("name") or f"Produto/Serviço {prod_index + 1}"
-        st.subheader(f"Custos de {product_name}")
+        st.subheader(f"Custos Variáveis de {product_name}")
         # Ensure a list of cost items exists for this product index
         if prod_index not in st.session_state.costs:
             st.session_state.costs[prod_index] = []
@@ -1644,33 +1649,43 @@ def wizard_step3():
 
 
 def wizard_step4():
-    """Step 4: Operating expenses."""
-    st.header("Etapa 4 · Despesas Operacionais")
+    """Step 4: Fixed spending split into costs and expenses."""
+    st.header("Etapa 4 · Gastos Fixos")
     # Display navigation index across all steps
     render_step_index()
-    # Explanation for operating expenses
     st.markdown(
         """
-        As **despesas operacionais** são os **custos fixos** que não variam diretamente com o volume
-        de vendas ou produção. Elas são agrupadas em três categorias:
+        Nesta etapa você registra os **gastos fixos** do negócio, divididos em duas partes:
 
-        * **Operacionais** – despesas necessárias para manter o negócio funcionando, como aluguel,
-          energia, internet e manutenção.  
+        * **Custos Fixos** – gastos recorrentes ligados à operação principal.
+        * **Despesas Fixas** – gastos recorrentes administrativos, comerciais e de suporte.
 
-        * **Administrativas** – custos administrativos e de suporte, como salários de funcionários
-          administrativos, contabilidade, honorários jurídicos e softwares de gestão.  
-
-        * **De Vendas** – despesas relacionadas à promoção e comercialização, como marketing,
-          publicidade, comissões fixas e salários de vendedores.  
-
-        Para cada despesa, informe uma descrição e o valor **mensal**. Essas despesas compõem os
-        **custos fixos** utilizados no cálculo do ponto de equilíbrio e nas projeções.
+        Use as categorias para organizar melhor os lançamentos mensais.
         """
     )
     categories = [("op", "Operacionais"), ("adm", "Administrativas"), ("sales", "De Vendas")]
+
+    st.markdown("### Custos Fixos")
     for cat_key, cat_name in categories:
-        st.subheader(cat_name)
-        # Render each expense for this category
+        st.subheader(f"Custos Fixos · {cat_name}")
+        if cat_key not in st.session_state.fixed_costs:
+            st.session_state.fixed_costs[cat_key] = []
+        for i, item in enumerate(st.session_state.fixed_costs.get(cat_key, [])):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                desc = st.text_input("Descrição", value=item.get("desc", ""), key=f"fixed_costs_desc_{cat_key}_{i}")
+            with col2:
+                val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(item.get("value", 0.0)), key=f"fixed_costs_val_{cat_key}_{i}")
+            st.session_state.fixed_costs[cat_key][i] = {"desc": desc, "value": val}
+        if st.button(f"+ Adicionar custo fixo {cat_name.lower()}", key=f"add_fixed_costs_{cat_key}"):
+            st.session_state.fixed_costs[cat_key].append({"desc": "", "value": 0.0})
+            safe_rerun()
+
+    st.markdown("### Despesas Fixas")
+    for cat_key, cat_name in categories:
+        st.subheader(f"Despesas Fixas · {cat_name}")
+        if cat_key not in st.session_state.fixed_expenses:
+            st.session_state.fixed_expenses[cat_key] = []
         for i, exp in enumerate(st.session_state.fixed_expenses.get(cat_key, [])):
             col1, col2 = st.columns([3, 1])
             with col1:
@@ -1678,9 +1693,10 @@ def wizard_step4():
             with col2:
                 val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(exp.get("value", 0.0)), key=f"fixed_expenses_val_{cat_key}_{i}")
             st.session_state.fixed_expenses[cat_key][i] = {"desc": desc, "value": val}
-        if st.button(f"+ Adicionar despesa {cat_name.lower()}", key=f"add_fixed_expenses_{cat_key}"):
+        if st.button(f"+ Adicionar despesa fixa {cat_name.lower()}", key=f"add_fixed_expenses_{cat_key}"):
             st.session_state.fixed_expenses[cat_key].append({"desc": "", "value": 0.0})
             safe_rerun()
+
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("◂ Voltar", key="back4"):
@@ -1690,7 +1706,6 @@ def wizard_step4():
         if st.button("Próximo ▸", key="next4"):
             st.session_state.step = 5
             safe_rerun()
-
 
 def wizard_step5():
     """Step 5: Investments."""
