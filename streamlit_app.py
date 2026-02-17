@@ -1200,11 +1200,79 @@ def render_step_index() -> None:
             safe_rerun()
 
 
+def render_planning_sidebar() -> None:
+    """Render a compact sidebar with progress and checklist hints."""
+
+    step_labels = [
+        "Projeto",
+        "Receitas",
+        "Gastos Variáveis",
+        "Gastos Fixos",
+        "Investimentos",
+        "Financiamento",
+        "Resultados",
+    ]
+    current_step = int(st.session_state.get("step", 1) or 1)
+    progress = min(max(current_step / len(step_labels), 0.0), 1.0)
+
+    with st.sidebar:
+        st.subheader("Progresso do planejamento")
+        st.progress(progress)
+        st.caption(f"Etapa {current_step} de {len(step_labels)}")
+
+        st.markdown("### Checklist rápido")
+        checks = [
+            bool(st.session_state.get("project_name")),
+            len(st.session_state.get("revenue", [])) > 0,
+            sum(len(v) for v in st.session_state.get("costs", {}).values()) > 0,
+            (
+                sum(len(v) for v in st.session_state.get("fixed_costs", {}).values()) > 0
+                or sum(len(v) for v in st.session_state.get("fixed_expenses", {}).values()) > 0
+            ),
+            len(st.session_state.get("investments", [])) > 0,
+        ]
+        check_labels = [
+            "Projeto identificado",
+            "Receita cadastrada",
+            "Custos variáveis cadastrados",
+            "Gastos fixos cadastrados",
+            "Investimentos cadastrados",
+        ]
+        for label, ok in zip(check_labels, checks):
+            icon = "✅" if ok else "⬜"
+            st.write(f"{icon} {label}")
+
+        st.markdown("### Dica")
+        st.info(
+            "Use a navegação por etapas no topo para revisar dados antes de gerar os resultados."
+        )
+
+
+
+
+def render_step_header(step_number: int, title: str, description: str) -> None:
+    """Render a consistent heading block for wizard steps."""
+
+    st.header(f"Etapa {step_number} · {title}")
+    st.caption(description)
+    render_step_index()
+
+
+def render_summary_cards(summary: Dict[str, float]) -> None:
+    """Render key planning metrics using compact KPI cards."""
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Receita total", f"R$ {summary.get('revenue', 0.0):,.2f}")
+    with col2:
+        st.metric("Custos totais", f"R$ {summary.get('costs', 0.0):,.2f}")
+    with col3:
+        st.metric("Lucro líquido", f"R$ {summary.get('profit', 0.0):,.2f}")
+
+
 def wizard_step1():
     """Step 1: Project identification."""
-    st.header("Etapa 1 · Identificação do Projeto")
-    # Display navigation index across all steps
-    render_step_index()
+    render_step_header(1, "Identificação do Projeto", "Defina os parâmetros iniciais do seu planejamento.")
     # Explanation about the identification step
     st.markdown(
         """
@@ -1304,9 +1372,7 @@ def wizard_step2():
     ``st.session_state.revenue_monthly`` under the index of each product
     and later used in the projection calculations.
     """
-    st.header("Etapa 2 · Estrutura de Receitas")
-    # Display navigation index across all steps
-    render_step_index()
+    render_step_header(2, "Estrutura de Receitas", "Cadastre produtos e configure a evolução mensal de vendas.")
     # Explanation for revenue structure
     st.markdown(
         """
@@ -1525,9 +1591,7 @@ def wizard_step2():
 
 def wizard_step3():
     """Step 3: Variable spending split into costs and expenses per product."""
-    st.header("Etapa 3 · Gastos Variáveis")
-    # Display navigation index across all steps
-    render_step_index()
+    render_step_header(3, "Gastos Variáveis", "Informe os custos variáveis e despesas variáveis por produto.")
     # Explanation for direct costs
     st.markdown(
         """
@@ -1650,9 +1714,7 @@ def wizard_step3():
 
 def wizard_step4():
     """Step 4: Fixed spending split into costs and expenses."""
-    st.header("Etapa 4 · Gastos Fixos")
-    # Display navigation index across all steps
-    render_step_index()
+    render_step_header(4, "Gastos Fixos", "Registre custos e despesas fixas recorrentes.")
     st.markdown(
         """
         Nesta etapa você registra os **gastos fixos** do negócio, divididos em duas partes:
@@ -1709,9 +1771,7 @@ def wizard_step4():
 
 def wizard_step5():
     """Step 5: Investments."""
-    st.header("Etapa 5 · Investimentos")
-    # Display navigation index across all steps
-    render_step_index()
+    render_step_header(5, "Investimentos", "Liste os ativos necessários e seus meses de aquisição.")
     # Explanation for investments
     st.markdown(
         """
@@ -1750,9 +1810,7 @@ def wizard_step5():
 
 def wizard_step6():
     """Step 6: Financing (optional)."""
-    st.header("Etapa 6 · Estrutura de Capital")
-    # Display navigation index across all steps
-    render_step_index()
+    render_step_header(6, "Estrutura de Capital", "Configure dados de empréstimo e financiamento, se houver.")
     # Explanation for financing
     st.markdown(
         """
@@ -1785,9 +1843,7 @@ def wizard_step6():
 
 def wizard_step7():
     """Step 7: Results and report generation."""
-    st.header("Etapa 7 · Resultados e Análises")
-    # Display navigation index across all steps
-    render_step_index()
+    render_step_header(7, "Resultados e Análises", "Analise os indicadores de viabilidade e o fluxo de caixa.")
     # Explanation for results and analyses
     st.markdown(
         """
@@ -1883,6 +1939,7 @@ def wizard_step7():
     st.table(metrics_table)
     # Provide summary metrics similar to earlier summary for context
     summary = compute_summary(st.session_state)
+    render_summary_cards(summary)
     st.subheader("Resumo Gerencial (Ano 1 – Custeio Variável)")
     st.table(pd.DataFrame({"Categoria": summary.keys(), "Valor": summary.values()}))
     # Generate downloadable files based on base summary
@@ -2153,6 +2210,7 @@ def main():
         safe_rerun()
 
     if st.session_state.module == "Planejamento financeiro":
+        render_planning_sidebar()
         step = st.session_state.step
         if step == 1:
             wizard_step1()
