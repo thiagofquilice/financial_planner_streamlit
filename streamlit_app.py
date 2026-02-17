@@ -732,8 +732,10 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
     loan_inflow_monthly = [0.0 for _ in range(months_total)]
     if loan_amount > 0:
         loan_inflow_monthly[0] += loan_amount
-    # Prepare previous revenue per product for receivables; start with zeros
-    prev_rev_per_prod: List[float] = [0.0 for _ in state.get("revenue", [])]
+    # Schedules (queues) to distribute term payments and receipts across installments
+    revenue_receivable_schedule: List[List[float]] = [[0.0] for _ in state.get("revenue", [])]
+    variable_payable_schedule: List[float] = [0.0]
+    fixed_payable_schedule: List[float] = [0.0]
     # Iterate months to compute metrics
     for m in range(months_total):
         # Determine year index for tax and loan payment cut‑off
@@ -742,8 +744,8 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
         revenue_m = 0.0
         var_cost_m = 0.0
         cash_receipt_m = 0.0
-        # Build new list to update next loop outside (we will reassign after loop)
-        new_prev_rev_per_prod: List[float] = []
+        var_cost_cash_m = pop_scheduled_amount(variable_payable_schedule)
+        fixed_cost_cash_m = pop_scheduled_amount(fixed_payable_schedule)
         for idx, prod in enumerate(state.get("revenue", [])):
             monthly_data = normalized_monthlies[idx]
             m_data = monthly_data[m]
@@ -751,18 +753,54 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
             price_m = float(m_data.get("price", 0.0))
             rev_i_m = price_m * qty_m
             revenue_m += rev_i_m
-            var_cost_m += (cost_per_unit_list[idx] + var_cost_per_unit_list[idx]) * qty_m
-            # Cash receipts: immediate part + previous month's credit
-            credit_pct = float(prod.get("prazo", 0.0) or 0.0) / 100.0
-            immediate_part = rev_i_m * (1.0 - credit_pct)
-            prev_credit = prev_rev_per_prod[idx] * credit_pct
-            cash_receipt_m += immediate_part + prev_credit
-            # Update new_prev_rev list with current revenue for next iteration
-            new_prev_rev_per_prod.append(rev_i_m)
-        # After finishing products update prev_rev_per_prod list for next iteration
-        prev_rev_per_prod = new_prev_rev_per_prod
-        # Fixed cost for this month
+            # Variable accrual by product (direct costs + variable expenses)
+            var_cost_item_m = (cost_per_unit_list[idx] + var_cost_per_unit_list[idx]) * qty_m
+            var_cost_m += var_cost_item_m
+            # Revenue cash: prior installments + immediate + newly scheduled installments
+            cash_receipt_m += pop_scheduled_amount(revenue_receivable_schedule[idx])
+            cash_receipt_m += schedule_installment_flow(
+                revenue_receivable_schedule[idx],
+                rev_i_m,
+                float(prod.get("prazo", 0.0) or 0.0),
+                int(prod.get("prazo_parcelas", 1) or 1),
+            )
+            # Variable cash payment schedule combines costs and variable expenses payment terms
+            product_costs = state.get("costs", {}).get(idx, [])
+            product_vars = state.get("variable_expenses", {}).get(idx, [])
+            for cost_item in product_costs:
+                item_amount = float(cost_item.get("qty", 0.0)) * float(cost_item.get("unit", 0.0)) * qty_m
+                var_cost_cash_m += schedule_installment_flow(
+                    variable_payable_schedule,
+                    item_amount,
+                    float(cost_item.get("prazo_pct", cost_item.get("term", 0.0)) or 0.0),
+                    int(cost_item.get("prazo_parcelas", 1) or 1),
+                )
+            for var_item in product_vars:
+                item_amount = float(var_item.get("qty", 0.0)) * float(var_item.get("unit", 0.0)) * qty_m
+                var_cost_cash_m += schedule_installment_flow(
+                    variable_payable_schedule,
+                    item_amount,
+                    float(var_item.get("prazo_pct", var_item.get("term", 0.0)) or 0.0),
+                    int(var_item.get("prazo_parcelas", 1) or 1),
+                )
+        # Fixed cost for this month (competência)
         fixed_cost_m = fixed_expenses_total_monthly
+        # Schedule fixed costs cash according to payment terms
+        for cat in ["op", "adm", "sales"]:
+            for item in state.get("fixed_costs", {}).get(cat, []):
+                fixed_cost_cash_m += schedule_installment_flow(
+                    fixed_payable_schedule,
+                    float(item.get("value", 0.0) or 0.0),
+                    float(item.get("prazo_pct", 0.0) or 0.0),
+                    int(item.get("prazo_parcelas", 1) or 1),
+                )
+            for item in state.get("fixed_expenses", {}).get(cat, []):
+                fixed_cost_cash_m += schedule_installment_flow(
+                    fixed_payable_schedule,
+                    float(item.get("value", 0.0) or 0.0),
+                    float(item.get("prazo_pct", 0.0) or 0.0),
+                    int(item.get("prazo_parcelas", 1) or 1),
+                )
         # Tax for this month (accrual basis)
         tax_m = 0.0
         if tax_enabled:
@@ -776,7 +814,7 @@ def compute_monthly_details(state: st.session_state, variation: float = 1.0) -> 
         # Investment cash flow for this month
         invest_cf_m = investments_monthly[m]
         # Operational cash flow: cash receipts minus variable and fixed costs minus taxes
-        oper_cf_m = cash_receipt_m - var_cost_m - fixed_cost_m - tax_m
+        oper_cf_m = cash_receipt_m - var_cost_cash_m - fixed_cost_cash_m - tax_m
         # Profit in competência follows custeio variável, excluding financing flows.
         profit_m = revenue_m - var_cost_m - fixed_cost_m - tax_m
         # Total cash flow
@@ -1251,6 +1289,35 @@ def format_percent_br(value: float) -> str:
     return f"{text}%"
 
 
+def pop_scheduled_amount(schedule: List[float]) -> float:
+    """Pop the scheduled amount for the current month and advance the queue."""
+
+    if not schedule:
+        schedule.append(0.0)
+    amount = float(schedule.pop(0))
+    schedule.append(0.0)
+    return amount
+
+
+def schedule_installment_flow(
+    schedule: List[float], amount: float, pct_prazo: float, installments: int
+) -> float:
+    """Schedule an accrual amount into immediate + installments cash flow."""
+
+    amt = float(amount or 0.0)
+    pct = min(max(float(pct_prazo or 0.0), 0.0), 100.0) / 100.0
+    n_inst = max(int(installments or 1), 1)
+    immediate = amt * (1.0 - pct)
+    term_total = amt * pct
+    if term_total > 0:
+        each = term_total / n_inst
+        for month_offset in range(1, n_inst + 1):
+            if month_offset >= len(schedule):
+                schedule.extend([0.0] * (month_offset - len(schedule) + 1))
+            schedule[month_offset] += each
+    return immediate
+
+
 def render_step_index() -> None:
     """Render a navigation index across all steps at the top of each page.
 
@@ -1286,7 +1353,7 @@ def render_step_index() -> None:
 
 
 def render_planning_sidebar() -> None:
-    """Render a compact sidebar with progress and checklist hints."""
+    """Render sidebar navigation with completion status per step."""
 
     step_labels = [
         "Projeto",
@@ -1307,7 +1374,7 @@ def render_planning_sidebar() -> None:
         st.progress(progress)
         st.caption(f"Etapa {current_step} de {len(step_labels)}")
 
-        st.markdown("### Checklist rápido")
+        st.markdown("### Navegação por etapas")
         checks = [
             bool(st.session_state.get("project_name")),
             len(st.session_state.get("revenue", [])) > 0,
@@ -1317,29 +1384,28 @@ def render_planning_sidebar() -> None:
                 or sum(len(v) for v in st.session_state.get("fixed_expenses", {}).values()) > 0
             ),
             len(st.session_state.get("investments", [])) > 0,
+            True,
         ]
         check_labels = [
-            "Projeto identificado",
-            "Receita cadastrada",
-            "Custos variáveis cadastrados",
-            "Gastos fixos cadastrados",
-            "Investimentos cadastrados",
+            "Etapa 1 · Projeto",
+            "Etapa 2 · Receitas",
+            "Etapa 3 · Gastos Variáveis",
+            "Etapa 4 · Gastos Fixos",
+            "Etapa 5 · Investimentos",
+            "Etapa 6 · Resultados",
         ]
-        for label, ok in zip(check_labels, checks):
+        for idx, (label, ok) in enumerate(zip(check_labels, checks), start=1):
             icon = "✅" if ok else "⬜"
-            st.write(f"{icon} {label}")
-
-        st.markdown("### Dica")
-        st.info(
-            "Use a navegação por etapas no topo para revisar dados antes de gerar os resultados."
-        )
+            suffix = " · atual" if current_step == idx else ""
+            if st.button(f"{icon} {label}{suffix}", key=f"sidebar_step_{idx}", use_container_width=True):
+                st.session_state.step = idx
+                safe_rerun()
 
 
 
 
 def render_step_header(step_number: int, title: str, description: str) -> None:
     """Render a consistent heading block for wizard steps."""
-    render_step_index()
     step_colors = {
         1: "#0EA5E9",
         2: "#10B981",
@@ -1536,6 +1602,13 @@ def wizard_step2():
                 value=float(item.get("prazo", 0.0)),
                 key=f"rev_prazo_{i}",
             )
+            prazo_parcelas = st.number_input(
+                "Parcelamento médio (nº de parcelas)",
+                min_value=1,
+                max_value=60,
+                value=int(item.get("prazo_parcelas", 1) or 1),
+                key=f"rev_prazo_parcelas_{i}",
+            )
             # Selection of input method
             method = st.selectbox(
                 "Modo de inserção",
@@ -1665,6 +1738,7 @@ def wizard_step2():
                 "price": base_price_val,
                 "qty": base_qty_val,
                 "prazo": prazo,
+                "prazo_parcelas": int(prazo_parcelas),
             }
             st.session_state.revenue_monthly[i] = {
                 "method": method,
@@ -1677,7 +1751,7 @@ def wizard_step2():
             }
     # Option to add new product/service
     if st.button("+ Adicionar Produto/Serviço", key="add_rev"):
-        st.session_state.revenue.append({"name": "", "price": 0.0, "qty": 0.0, "prazo": 0.0})
+        st.session_state.revenue.append({"name": "", "price": 0.0, "qty": 0.0, "prazo": 0.0, "prazo_parcelas": 1})
         safe_rerun()
     # Navigation
     col1, col2 = st.columns(2)
@@ -1712,8 +1786,8 @@ def wizard_step3():
         Você também pode adicionar **despesas variáveis** por produto – valores que dependem da
         quantidade vendida, como taxas de cartão, frete por unidade ou comissões de venda.  
 
-        Preencha para cada item: nome, quantidade (por ciclo de produção), valor unitário e prazo de
-        pagamento (dias). Estes dados são usados para calcular o custo direto unitário.
+        Preencha para cada item: nome, quantidade (por ciclo de produção), valor unitário, % a prazo
+        e parcelamento médio. Estes dados são usados para calcular o custo direto unitário e o fluxo de caixa.
         """
     )
     # Loop through each product/service defined in revenue step
@@ -1743,22 +1817,31 @@ def wizard_step3():
                     format="%.2f",
                     key=f"cost_unit_{prod_index}_{i}",
                 )
-                term = st.number_input(
-                    "Prazo pag. (dias)",
+                prazo_pct = st.number_input(
+                    "% a prazo",
                     min_value=0.0,
-                    value=float(item.get("term", 0.0)),
-                    key=f"cost_term_{prod_index}_{i}",
+                    max_value=100.0,
+                    value=float(item.get("prazo_pct", item.get("term", 0.0))),
+                    key=f"cost_prazo_pct_{prod_index}_{i}",
+                )
+                prazo_parcelas = st.number_input(
+                    "Parcelamento médio (nº de parcelas)",
+                    min_value=1,
+                    max_value=60,
+                    value=int(item.get("prazo_parcelas", 1) or 1),
+                    key=f"cost_prazo_parcelas_{prod_index}_{i}",
                 )
                 # Update the cost item in session state
                 st.session_state.costs[prod_index][i] = {
                     "name": name,
                     "qty": qty,
                     "unit": unit,
-                    "term": term,
+                    "prazo_pct": prazo_pct,
+                    "prazo_parcelas": int(prazo_parcelas),
                 }
         # Button to add a cost item for this product
         if st.button(f"+ Adicionar custo para {product_name}", key=f"add_cost_{prod_index}"):
-            st.session_state.costs[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "term": 0.0})
+            st.session_state.costs[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
             safe_rerun()
         # Variable expenses section for this product
         st.markdown(f"### Despesas Variáveis de {product_name}")
@@ -1787,22 +1870,31 @@ def wizard_step3():
                     format="%.2f",
                     key=f"var_unit_{prod_index}_{vi}",
                 )
-                term = st.number_input(
-                    "Prazo pag. (dias)",
+                prazo_pct = st.number_input(
+                    "% a prazo",
                     min_value=0.0,
-                    value=float(vitem.get("term", 0.0)),
-                    key=f"var_term_{prod_index}_{vi}",
+                    max_value=100.0,
+                    value=float(vitem.get("prazo_pct", vitem.get("term", 0.0))),
+                    key=f"var_prazo_pct_{prod_index}_{vi}",
+                )
+                prazo_parcelas = st.number_input(
+                    "Parcelamento médio (nº de parcelas)",
+                    min_value=1,
+                    max_value=60,
+                    value=int(vitem.get("prazo_parcelas", 1) or 1),
+                    key=f"var_prazo_parcelas_{prod_index}_{vi}",
                 )
                 # Update variable expense in session state
                 st.session_state.variable_expenses[prod_index][vi] = {
                     "name": name,
                     "qty": qty,
                     "unit": unit,
-                    "term": term,
+                    "prazo_pct": prazo_pct,
+                    "prazo_parcelas": int(prazo_parcelas),
                 }
         # Button to add variable expense for this product
         if st.button(f"+ Adicionar despesa variável para {product_name}", key=f"add_var_exp_{prod_index}"):
-            st.session_state.variable_expenses[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "term": 0.0})
+            st.session_state.variable_expenses[prod_index].append({"name": "", "qty": 0.0, "unit": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
             safe_rerun()
     # Navigation buttons
     col1, col2 = st.columns([1, 1])
@@ -1837,14 +1929,18 @@ def wizard_step4():
         if cat_key not in st.session_state.fixed_costs:
             st.session_state.fixed_costs[cat_key] = []
         for i, item in enumerate(st.session_state.fixed_costs.get(cat_key, [])):
-            col1, col2 = st.columns([3, 1])
+            col1, col2, col3, col4 = st.columns([3, 1.2, 1.2, 1.2])
             with col1:
                 desc = st.text_input("Descrição", value=item.get("desc", ""), key=f"fixed_costs_desc_{cat_key}_{i}")
             with col2:
                 val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(item.get("value", 0.0)), format="%.2f", key=f"fixed_costs_val_{cat_key}_{i}")
-            st.session_state.fixed_costs[cat_key][i] = {"desc": desc, "value": val}
+            with col3:
+                prazo_pct = st.number_input("% a prazo", min_value=0.0, max_value=100.0, value=float(item.get("prazo_pct", 0.0)), key=f"fixed_costs_prazo_pct_{cat_key}_{i}")
+            with col4:
+                prazo_parcelas = st.number_input("Parcelas", min_value=1, max_value=60, value=int(item.get("prazo_parcelas", 1) or 1), key=f"fixed_costs_prazo_parcelas_{cat_key}_{i}")
+            st.session_state.fixed_costs[cat_key][i] = {"desc": desc, "value": val, "prazo_pct": prazo_pct, "prazo_parcelas": int(prazo_parcelas)}
         if st.button(f"+ Adicionar custo fixo {cat_name.lower()}", key=f"add_fixed_costs_{cat_key}"):
-            st.session_state.fixed_costs[cat_key].append({"desc": "", "value": 0.0})
+            st.session_state.fixed_costs[cat_key].append({"desc": "", "value": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
             safe_rerun()
 
     st.markdown("### Despesas Fixas")
@@ -1853,14 +1949,18 @@ def wizard_step4():
         if cat_key not in st.session_state.fixed_expenses:
             st.session_state.fixed_expenses[cat_key] = []
         for i, exp in enumerate(st.session_state.fixed_expenses.get(cat_key, [])):
-            col1, col2 = st.columns([3, 1])
+            col1, col2, col3, col4 = st.columns([3, 1.2, 1.2, 1.2])
             with col1:
                 desc = st.text_input("Descrição", value=exp.get("desc", ""), key=f"fixed_expenses_desc_{cat_key}_{i}")
             with col2:
                 val = st.number_input("Valor mensal (R$)", min_value=0.0, value=float(exp.get("value", 0.0)), format="%.2f", key=f"fixed_expenses_val_{cat_key}_{i}")
-            st.session_state.fixed_expenses[cat_key][i] = {"desc": desc, "value": val}
+            with col3:
+                prazo_pct = st.number_input("% a prazo", min_value=0.0, max_value=100.0, value=float(exp.get("prazo_pct", 0.0)), key=f"fixed_expenses_prazo_pct_{cat_key}_{i}")
+            with col4:
+                prazo_parcelas = st.number_input("Parcelas", min_value=1, max_value=60, value=int(exp.get("prazo_parcelas", 1) or 1), key=f"fixed_expenses_prazo_parcelas_{cat_key}_{i}")
+            st.session_state.fixed_expenses[cat_key][i] = {"desc": desc, "value": val, "prazo_pct": prazo_pct, "prazo_parcelas": int(prazo_parcelas)}
         if st.button(f"+ Adicionar despesa fixa {cat_name.lower()}", key=f"add_fixed_expenses_{cat_key}"):
-            st.session_state.fixed_expenses[cat_key].append({"desc": "", "value": 0.0})
+            st.session_state.fixed_expenses[cat_key].append({"desc": "", "value": 0.0, "prazo_pct": 0.0, "prazo_parcelas": 1})
             safe_rerun()
 
     col1, col2 = st.columns([1, 1])
@@ -1975,7 +2075,7 @@ def wizard_step7():
     discount_rate = discount_rate_input / 100.0
     projections, cashflows, _ = compute_projections(st.session_state, variation=variation_factor)
 
-    df_dre = pd.DataFrame([p for p in projections[1:]], columns=["Ano", "Receita", "Custos", "Custos Fixos", "Tributos", "Lucro"])
+    df_dre = pd.DataFrame([p for p in projections[1:]], columns=["Ano", "Receita", "Custos", "Custos Fixos", "Tributos", "Lucro"]).rename(columns={"Custos": "Gastos Variáveis", "Custos Fixos": "Gastos Fixos"})
     df_fc = pd.DataFrame({"Ano": list(range(len(cashflows))), "Fluxo de Caixa": cashflows})
     npv = compute_npv(cashflows, discount_rate)
     irr = compute_irr(cashflows)
@@ -2020,8 +2120,8 @@ def wizard_step7():
         "DRE",
         "DFC",
         "Resumo Gerencial",
-        "Projeções Mensais",
-        "Projeções Anuais",
+        "Projeção de resultado Mensal",
+        "Projeção de resultado Anual",
     ]
     analysis_options = [
         "Viabilidade",
@@ -2046,8 +2146,8 @@ def wizard_step7():
 
     currency_fmt = {
         "Receita": lambda x: format_currency_br(x),
-        "Custos": lambda x: format_currency_br(x),
-        "Custos Fixos": lambda x: format_currency_br(x),
+        "Gastos Variáveis": lambda x: format_currency_br(x),
+        "Gastos Fixos": lambda x: format_currency_br(x),
         "Tributos": lambda x: format_currency_br(x),
         "Lucro": lambda x: format_currency_br(x),
         "Fluxo de Caixa": lambda x: format_currency_br(x),
@@ -2096,26 +2196,26 @@ def wizard_step7():
             )
         else:
             st.info("Sem dados suficientes para calcular o ponto de equilíbrio.")
-    elif selected == "Projeções Mensais":
-        st.subheader("Projeções Mensais – Gastos e Resultado (Competência)")
-        df_month_dre = df_month[["Mês", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]]
+    elif selected == "Projeção de resultado Mensal":
+        st.subheader("Projeção de resultado Mensal")
+        df_month_dre = df_month[["Mês", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]].rename(columns={"Custo Variável": "Gastos Variáveis", "Custo Fixo": "Gastos Fixos"})
         st.dataframe(
             df_month_dre.style.format({
                 "Receita": lambda x: format_currency_br(x),
-                "Custo Variável": lambda x: format_currency_br(x),
-                "Custo Fixo": lambda x: format_currency_br(x),
+                "Gastos Variáveis": lambda x: format_currency_br(x),
+                "Gastos Fixos": lambda x: format_currency_br(x),
                 "Tributos": lambda x: format_currency_br(x),
                 "Lucro": lambda x: format_currency_br(x),
             }),
             use_container_width=True,
         )
-        st.subheader("Projeções Mensais – Fluxo de Caixa")
-        df_month_dfc = df_month[["Mês", "Receita Caixa", "Custo Variável", "Custo Fixo", "Tributos", "CF Operacional", "CF Financeiro", "CF Investimento", "CF Total"]]
+        st.subheader("Projeção do fluxo de caixa mensal")
+        df_month_dfc = df_month[["Mês", "Receita Caixa", "Custo Variável", "Custo Fixo", "Tributos", "CF Operacional", "CF Financeiro", "CF Investimento", "CF Total"]].rename(columns={"Custo Variável": "Gastos Variáveis", "Custo Fixo": "Gastos Fixos"})
         st.dataframe(
             df_month_dfc.style.format({
                 "Receita Caixa": lambda x: format_currency_br(x),
-                "Custo Variável": lambda x: format_currency_br(x),
-                "Custo Fixo": lambda x: format_currency_br(x),
+                "Gastos Variáveis": lambda x: format_currency_br(x),
+                "Gastos Fixos": lambda x: format_currency_br(x),
                 "Tributos": lambda x: format_currency_br(x),
                 "CF Operacional": lambda x: format_currency_br(x),
                 "CF Financeiro": lambda x: format_currency_br(x),
@@ -2124,26 +2224,26 @@ def wizard_step7():
             }),
             use_container_width=True,
         )
-    elif selected == "Projeções Anuais":
-        st.subheader("Projeções Anuais – Gastos e Resultado (Competência)")
-        df_ann_dre = df_ann[["Ano", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]]
+    elif selected == "Projeção de resultado Anual":
+        st.subheader("Projeção de resultado Anual")
+        df_ann_dre = df_ann[["Ano", "Receita", "Custo Variável", "Custo Fixo", "Tributos", "Lucro"]].rename(columns={"Custo Variável": "Gastos Variáveis", "Custo Fixo": "Gastos Fixos"})
         st.dataframe(
             df_ann_dre.style.format({
                 "Receita": lambda x: format_currency_br(x),
-                "Custo Variável": lambda x: format_currency_br(x),
-                "Custo Fixo": lambda x: format_currency_br(x),
+                "Gastos Variáveis": lambda x: format_currency_br(x),
+                "Gastos Fixos": lambda x: format_currency_br(x),
                 "Tributos": lambda x: format_currency_br(x),
                 "Lucro": lambda x: format_currency_br(x),
             }),
             use_container_width=True,
         )
-        st.subheader("Projeções Anuais – Fluxo de Caixa")
-        df_ann_dfc = df_ann[["Ano", "Receita Caixa", "Custo Variável", "Custo Fixo", "Tributos", "CF Operacional", "CF Financeiro", "CF Investimento", "CF Total"]]
+        st.subheader("Projeção do fluxo de caixa anual")
+        df_ann_dfc = df_ann[["Ano", "Receita Caixa", "Custo Variável", "Custo Fixo", "Tributos", "CF Operacional", "CF Financeiro", "CF Investimento", "CF Total"]].rename(columns={"Custo Variável": "Gastos Variáveis", "Custo Fixo": "Gastos Fixos"})
         st.dataframe(
             df_ann_dfc.style.format({
                 "Receita Caixa": lambda x: format_currency_br(x),
-                "Custo Variável": lambda x: format_currency_br(x),
-                "Custo Fixo": lambda x: format_currency_br(x),
+                "Gastos Variáveis": lambda x: format_currency_br(x),
+                "Gastos Fixos": lambda x: format_currency_br(x),
                 "Tributos": lambda x: format_currency_br(x),
                 "CF Operacional": lambda x: format_currency_br(x),
                 "CF Financeiro": lambda x: format_currency_br(x),
