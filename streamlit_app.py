@@ -1930,7 +1930,7 @@ def wizard_step7():
                 "name": "Produto/Serviço",
                 "share": "Participação (%)",
                 "revenue_be": "Receita de PE (R$)",
-                "qty_be": "Quantidade de PE",
+                "quantity_be": "Quantidade de PE",
                 "mc_unit": "Margem de Contribuição unitária (MCu)",
                 "mc_total": "Margem de Contribuição total (MCt)",
                 "price": "Preço (P)",
@@ -1938,7 +1938,8 @@ def wizard_step7():
                 "var_unit": "Despesa variável unitária (DVu)",
             }
         )
-        df_be_prod["Participação (%)"] = df_be_prod["Participação (%)"] * 100.0
+        if "Participação (%)" in df_be_prod.columns:
+            df_be_prod["Participação (%)"] = df_be_prod["Participação (%)"] * 100.0
 
     analysis_options = [
         "Resultados · DRE",
