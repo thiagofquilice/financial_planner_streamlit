@@ -12,11 +12,11 @@ STEP_TITLES = [
     "Economia unitária, variáveis e prazos",
     "Fixos e prazos de pagamento",
     "Projeção de volume e ponto de equilíbrio",
-    "Cenários e ponto de equilíbrio",
     "Investimentos (CAPEX)",
     "Fluxo de caixa mensal e necessidade de caixa",
     "Viabilidade: VPL, TIR, TIRM, Payback",
     "Demonstrativos (Competência e Caixa)",
+    "Análise de sensibilidade",
 ]
 
 
@@ -75,6 +75,7 @@ def init_state() -> None:
     st.session_state.setdefault("cashflow", {})
     st.session_state.setdefault("viability", {})
     st.session_state.setdefault("statements", {})
+    st.session_state.setdefault("sensitivity_scenarios", [])
 
 
 def ensure_item_consistency() -> None:
@@ -833,55 +834,9 @@ def step4() -> None:
     render_next(4)
 
 
+
 def step5() -> None:
-    header(5, "Nesta etapa você cria e ajusta cenários para testar hipóteses de preço, tributos e prazos. Ao final, compare o impacto no ponto de equilíbrio.")
-
-    ensure_item_consistency()
-    if not st.session_state["items"]:
-        st.warning("Cadastre ao menos 1 item na Etapa 1.")
-        render_next(5)
-        return
-
-    st.markdown("### 1) Cenário ativo e criação")
-    sid, scenario = _scenario_header_and_selection(step_number=5)
-    scenarios = st.session_state["scenarios"]
-
-    c1, c2 = st.columns(2)
-    if c1.button("Criar cenário do zero"):
-        new_id = f"scenario_{len(scenarios)+1}"
-        scenarios[new_id] = default_scenario(f"Cenário {len(scenarios)+1}", [i["id"] for i in st.session_state["items"]])
-        st.session_state["current_scenario_id"] = new_id
-        st.rerun()
-    if c2.button("Clonar cenário atual"):
-        new_id = f"scenario_{len(scenarios)+1}"
-        scenarios[new_id] = deepcopy(scenario)
-        scenarios[new_id]["name"] = f"Cenário {len(scenarios)+1} (clone)"
-        st.session_state["current_scenario_id"] = new_id
-        st.rerun()
-
-    scenario["name"] = st.text_input("Nome do cenário", value=scenario.get("name", sid), key=f"scenario_name_{sid}")
-
-    with st.expander("2) Ajustes do cenário (opcional): preço, tributos e prazos"):
-        ov = scenario["overrides"]
-        for item in st.session_state["items"]:
-            iid = item["id"]
-            st.markdown(f"**{item['name']}**")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.number_input("Preço", min_value=0.0, step=0.01, value=float(ov["price"].get(iid, st.session_state["unit_economics"][iid].get("price", 0.0))), key=f"ov_price_{sid}_{iid}")
-            c2.number_input("Tributos", min_value=0.0, max_value=1.0, step=0.005, value=float(ov["tax_rate"].get(iid, st.session_state["unit_economics"][iid].get("tax_rate", 0.0))), format="%.4f", key=f"ov_tax_{sid}_{iid}")
-            c3.number_input("Receb. (dias)", min_value=0, step=1, value=int(ov["receive_days"].get(iid, st.session_state["unit_economics"][iid].get("receive_days", 0))), key=f"ov_recv_{sid}_{iid}")
-            c4.number_input("Pagto. (dias)", min_value=0, step=1, value=int(ov["pay_days"].get(iid, st.session_state["unit_economics"][iid].get("pay_days", 0))), key=f"ov_pay_{sid}_{iid}")
-            ov["price"][iid] = float(st.session_state[f"ov_price_{sid}_{iid}"])
-            ov["tax_rate"][iid] = float(st.session_state[f"ov_tax_{sid}_{iid}"])
-            ov["receive_days"][iid] = int(st.session_state[f"ov_recv_{sid}_{iid}"])
-            ov["pay_days"][iid] = int(st.session_state[f"ov_pay_{sid}_{iid}"])
-
-    _render_break_even_summary(sid, scenario)
-    render_next(5)
-
-
-def step6() -> None:
-    header(6, "Agora registre os investimentos necessários para colocar a operação de pé (equipamentos, desenvolvimento, implantação). Eles entram no fluxo de caixa como saídas de investimento.")
+    header(5, "Agora registre os investimentos necessários para colocar a operação de pé (equipamentos, desenvolvimento, implantação). Eles entram no fluxo de caixa como saídas de investimento.")
 
     df = pd.DataFrame(st.session_state["investments"])
     cfg = {
@@ -894,11 +849,11 @@ def step6() -> None:
     }
     edited = st.data_editor(df, key="investments_table", num_rows="dynamic", use_container_width=True, hide_index=True, column_config=cfg)
     st.session_state["investments"] = edited.to_dict("records")
-    render_next(6)
+    render_next(5)
 
 
-def step7() -> None:
-    header(7, "O fluxo de caixa mostra quando o dinheiro entra e sai de verdade. O app destaca o pior momento do caixa acumulado, que costuma indicar a necessidade de caixa para sustentar a operação até ela se pagar.")
+def step6() -> None:
+    header(6, "O fluxo de caixa mostra quando o dinheiro entra e sai de verdade. O app destaca o pior momento do caixa acumulado, que costuma indicar a necessidade de caixa para sustentar a operação até ela se pagar.")
 
     sid = st.session_state["current_scenario_id"]
     res = calculate_scenario(sid)
@@ -908,11 +863,11 @@ def step7() -> None:
         f"Necessidade de caixa (pico de déficit operacional): R$ {abs(min(0, res['valley'])):,.2f} no mês {res['valley_month']}."
     )
     st.caption("Definição: o menor valor do caixa acumulado ao longo do período; indica quanto seria necessário financiar para atravessar o período mais negativo.")
-    render_next(7)
+    render_next(6)
 
 
-def step8() -> None:
-    header(8, "Com o fluxo de caixa pronto, o app calcula indicadores clássicos para avaliar se o projeto compensa. Se você for iniciante, foque primeiro em VPL (Valor Presente Líquido) e Payback.")
+def step7() -> None:
+    header(7, "Com o fluxo de caixa pronto, o app calcula indicadores clássicos para avaliar se o projeto compensa. Se você for iniciante, foque primeiro em VPL (Valor Presente Líquido) e Payback.")
     with st.expander("Instruções"):
         st.write(
             "- Taxa mínima desejada é o retorno que você exige para considerar o projeto atrativo.\n\n"
@@ -937,11 +892,11 @@ def step8() -> None:
     with st.expander("Avançado"):
         st.metric("TIR (Taxa Interna de Retorno)", "N/A" if pd.isna(v["tir"]) else f"{v['tir']:.2%}")
         st.metric("TIRM (Taxa Interna de Retorno Modificada)", "N/A" if pd.isna(v["tirm"]) else f"{v['tirm']:.2%}")
-    render_next(8)
+    render_next(7)
 
 
-def step9() -> None:
-    header(9, "Por fim, veja como o seu modelo aparece em demonstrativos. A DRE (Demonstração do Resultado do Exercício) é por competência (o que foi vendido/consumido no mês). O Fluxo de Caixa é por caixa (o que entrou/saiu de dinheiro no mês).")
+def step8() -> None:
+    header(8, "Por fim, veja como o seu modelo aparece em demonstrativos. A DRE (Demonstração do Resultado do Exercício) é por competência (o que foi vendido/consumido no mês). O Fluxo de Caixa é por caixa (o que entrou/saiu de dinheiro no mês).")
     sid = st.session_state["current_scenario_id"]
     res = calculate_scenario(sid)
 
@@ -958,6 +913,180 @@ def step9() -> None:
         st.session_state["step"] = 1
         st.rerun()
 
+
+
+def step9() -> None:
+    header(9, "Nesta etapa, você cria cenários alternativos para analisar a sensibilidade dos resultados em relação a mudanças nas premissas.")
+
+    ensure_item_consistency()
+    if not st.session_state["items"]:
+        st.warning("Cadastre ao menos 1 item na Etapa 1.")
+        return
+
+    sid = st.session_state["current_scenario_id"]
+    base_scenario = st.session_state["scenarios"][sid]
+
+    st.markdown("### Cenários Alternativos")
+    alt_scenarios = st.session_state.setdefault("sensitivity_scenarios", [])
+
+    if st.button("Adicionar Cenário Alternativo", key="add_sensitivity_scenario"):
+        alt_scenarios.append({
+            "name": f"Cenário Alternativo {len(alt_scenarios)+1}",
+            "selected_changes": [],
+            "qty_plus_pct": 0.0,
+            "qty_minus_pct": 0.0,
+            "mix_changes": {item["id"]: 0.0 for item in st.session_state["items"]},
+            "price_pct": {item["id"]: 0.0 for item in st.session_state["items"]},
+            "var_pct": {item["id"]: 0.0 for item in st.session_state["items"]},
+            "results": None,
+        })
+        st.rerun()
+
+    options = [
+        "Variação para mais e para menos na quantidade vendida",
+        "Alteração na proporção de vendas entre os produtos",
+        "Variação percentual no preço dos produtos",
+        "Variação percentual nos custos e despesas variáveis",
+    ]
+
+    for idx, alt in enumerate(alt_scenarios):
+        with st.container(border=True):
+            st.markdown(f"#### {alt['name']}")
+            alt["name"] = st.text_input("Nome do cenário", value=alt.get("name", f"Cenário Alternativo {idx+1}"), key=f"sens_name_{idx}")
+            selected = st.multiselect(
+                "Você deseja elaborar um cenário com base em:",
+                options=options,
+                default=alt.get("selected_changes", []),
+                key=f"sens_opts_{idx}",
+            )
+            alt["selected_changes"] = selected
+
+            if options[0] in selected:
+                c1, c2 = st.columns(2)
+                alt["qty_plus_pct"] = c1.number_input("Variação para mais na quantidade (%)", value=float(alt.get("qty_plus_pct", 0.0)), step=1.0, key=f"sens_qty_plus_{idx}")
+                alt["qty_minus_pct"] = c2.number_input("Variação para menos na quantidade (%)", value=float(alt.get("qty_minus_pct", 0.0)), step=1.0, key=f"sens_qty_minus_{idx}")
+
+            if options[1] in selected and len(st.session_state["items"]) > 1:
+                st.caption("Informe o ajuste percentual da participação de cada item no mix de vendas.")
+                for item in st.session_state["items"]:
+                    iid = item["id"]
+                    alt.setdefault("mix_changes", {}).setdefault(iid, 0.0)
+                    alt["mix_changes"][iid] = st.number_input(
+                        f"{item['name']} - alteração na proporção (%)",
+                        value=float(alt["mix_changes"].get(iid, 0.0)),
+                        step=1.0,
+                        key=f"sens_mix_{idx}_{iid}",
+                    )
+            elif options[1] in selected:
+                st.info("A alteração de proporção entre produtos exige ao menos 2 itens cadastrados.")
+
+            if options[2] in selected:
+                for item in st.session_state["items"]:
+                    iid = item["id"]
+                    alt.setdefault("price_pct", {}).setdefault(iid, 0.0)
+                    alt["price_pct"][iid] = st.number_input(
+                        f"{item['name']} - variação no preço (%)",
+                        value=float(alt["price_pct"].get(iid, 0.0)),
+                        step=1.0,
+                        key=f"sens_price_{idx}_{iid}",
+                    )
+
+            if options[3] in selected:
+                for item in st.session_state["items"]:
+                    iid = item["id"]
+                    alt.setdefault("var_pct", {}).setdefault(iid, 0.0)
+                    alt["var_pct"][iid] = st.number_input(
+                        f"{item['name']} - variação em custos/despesas variáveis (%)",
+                        value=float(alt["var_pct"].get(iid, 0.0)),
+                        step=1.0,
+                        key=f"sens_var_{idx}_{iid}",
+                    )
+
+            if st.button("Gerar resultados do cenário", key=f"gen_sensitivity_{idx}"):
+                temp_scenario = deepcopy(base_scenario)
+                horizon = int(temp_scenario.get("horizon_months", 12) or 12)
+
+                for item in st.session_state["items"]:
+                    iid = item["id"]
+                    base_qty = np.array(temp_scenario.get("quantities", {}).get(iid, [0.0] * horizon), dtype=float)
+                    if options[0] in selected:
+                        plus = float(alt.get("qty_plus_pct", 0.0)) / 100
+                        minus = float(alt.get("qty_minus_pct", 0.0)) / 100
+                        base_qty = base_qty * max(0.0, (1 + plus - minus))
+
+                    if options[1] in selected and len(st.session_state["items"]) > 1:
+                        mix = float(alt.get("mix_changes", {}).get(iid, 0.0)) / 100
+                        base_qty = base_qty * max(0.0, (1 + mix))
+
+                    temp_scenario["quantities"][iid] = base_qty.tolist()
+
+                    if options[2] in selected:
+                        base_price = float(temp_scenario["overrides"]["price"].get(iid, st.session_state["unit_economics"][iid].get("price", 0.0)) or 0.0)
+                        temp_scenario["overrides"]["price"][iid] = base_price * (1 + float(alt.get("price_pct", {}).get(iid, 0.0)) / 100)
+
+                modified_unit_econ = deepcopy(st.session_state["unit_economics"])
+                if options[3] in selected:
+                    for item in st.session_state["items"]:
+                        iid = item["id"]
+                        factor = 1 + float(alt.get("var_pct", {}).get(iid, 0.0)) / 100
+                        for row in modified_unit_econ[iid].get("variable_costs", []):
+                            row["unit_value"] = float(row.get("unit_value", 0.0) or 0.0) * factor
+                        for row in modified_unit_econ[iid].get("variable_expenses", []):
+                            row["unit_value"] = float(row.get("unit_value", 0.0) or 0.0) * factor
+
+                temp_id = f"_sensitivity_{idx}"
+                original_scenario = st.session_state["scenarios"].get(temp_id)
+                original_econ = st.session_state["unit_economics"]
+                st.session_state["scenarios"][temp_id] = temp_scenario
+                st.session_state["unit_economics"] = modified_unit_econ
+                try:
+                    result = calculate_scenario(temp_id)
+                    viab = calc_viability(temp_id, float(st.session_state.get("discount_rate", 0.01)), float(st.session_state.get("reinvest_rate", st.session_state.get("discount_rate", 0.01))))
+                finally:
+                    if original_scenario is None:
+                        st.session_state["scenarios"].pop(temp_id, None)
+                    else:
+                        st.session_state["scenarios"][temp_id] = original_scenario
+                    st.session_state["unit_economics"] = original_econ
+
+                mix_rows = []
+                for item in st.session_state["items"]:
+                    iid = item["id"]
+                    metrics = unit_metrics(item, temp_scenario)
+                    qty_total = float(np.sum(temp_scenario.get("quantities", {}).get(iid, [])))
+                    mix_rows.append(
+                        {
+                            "Produto/Serviço": item["name"],
+                            "MC por produto": metrics["mc_u"],
+                            "PE em quantidade": (result["break_even_revenue"] / metrics["price"]) if metrics["price"] > 0 and pd.notna(result["break_even_revenue"]) else np.nan,
+                            "PE em receita": result["break_even_revenue"],
+                            "Quantidade projetada": qty_total,
+                        }
+                    )
+
+                alt["results"] = {
+                    "mix_df": pd.DataFrame(mix_rows),
+                    "vpl": viab["vpl"],
+                    "tir": viab["tir"],
+                    "tirm": viab["tirm"],
+                    "payback": viab["payback"],
+                    "payback_discounted": viab["payback_discounted"],
+                }
+
+            if alt.get("results") is not None:
+                st.markdown("**Resultados do cenário**")
+                st.dataframe(alt["results"]["mix_df"], use_container_width=True, hide_index=True)
+                c1, c2, c3 = st.columns(3)
+                c1.metric("VPL", f"R$ {alt['results']['vpl']:,.2f}")
+                c2.metric("TIR", "N/A" if pd.isna(alt["results"]["tir"]) else f"{alt['results']['tir']:.2%}")
+                c3.metric("TIRM", "N/A" if pd.isna(alt["results"]["tirm"]) else f"{alt['results']['tirm']:.2%}")
+                c4, c5 = st.columns(2)
+                c4.metric("Payback", "Não recupera" if pd.isna(alt["results"]["payback"]) else f"{int(alt['results']['payback'])} meses")
+                c5.metric("Payback descontado", "Não recupera" if pd.isna(alt["results"]["payback_discounted"]) else f"{int(alt['results']['payback_discounted'])} meses")
+
+            if st.button("Remover cenário", key=f"remove_sensitivity_{idx}"):
+                alt_scenarios.pop(idx)
+                st.rerun()
 
 def main() -> None:
     st.set_page_config(page_title="Financial Planner", layout="wide")
