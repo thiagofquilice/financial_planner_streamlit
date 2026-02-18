@@ -489,12 +489,21 @@ def step2() -> None:
         "Anexo IV (Serviços — construção/limpeza/vigilância, etc.)": 0.045,
         "Anexo V (Serviços — técnicos/intelectuais, etc.)": 0.155,
     }
+    legacy_anexo_aliases = {
+        "I": "Anexo I (Comércio)",
+        "II": "Anexo II (Indústria)",
+        "III": "Anexo III (Serviços)",
+        "IV": "Anexo IV (Serviços — construção/limpeza/vigilância, etc.)",
+        "V": "Anexo V (Serviços — técnicos/intelectuais, etc.)",
+    }
 
     summary = []
     for item in st.session_state["items"]:
         iid = item["id"]
         econ = st.session_state["unit_economics"][iid]
-        if "simples_anexo" not in econ:
+        raw_anexo = str(econ.get("simples_anexo", "")).strip()
+        econ["simples_anexo"] = legacy_anexo_aliases.get(raw_anexo, raw_anexo)
+        if econ["simples_anexo"] not in anexo_min_rate:
             econ["simples_anexo"] = "Anexo III (Serviços)"
         st.markdown(f"### {item['name']} ({item['unit']})")
 
@@ -511,7 +520,7 @@ def step2() -> None:
         econ["simples_anexo"] = anexo
         if previous_anexo != anexo:
             econ["tax_rate"] = anexo_min_rate[anexo]
-            st.session_state[f"tax_{iid}"] = econ["tax_rate"]
+            st.session_state.pop(f"tax_{iid}", None)
 
         st.info(
             "No Simples Nacional, a alíquota efetiva tende a aumentar conforme sua receita bruta acumulada (RBT12). "
