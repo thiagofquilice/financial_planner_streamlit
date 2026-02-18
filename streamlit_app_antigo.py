@@ -1755,18 +1755,14 @@ def wizard_step2():
                     key=f"rev_month_qty_{i}_{m}",
                 )
                 updated_monthly.append({"price": base_price_val, "qty": qty_val})
-            # Update revenue and monthly configuration in session state. Use
-            # the current values (base_price_val, base_qty_val, growth_*_val) so that
-            # edits to the configuration persist even if the user does not click
-            # the generate button again.
-            st.session_state.revenue[i] = {
+            updated_revenue = {
                 "name": name,
                 "price": base_price_val,
                 "qty": base_qty_val,
                 "prazo": prazo,
                 "prazo_parcelas": int(prazo_parcelas),
             }
-            st.session_state.revenue_monthly[i] = {
+            updated_revenue_monthly = {
                 "method": method,
                 "base_price": base_price_val,
                 "base_qty": base_qty_val,
@@ -1775,6 +1771,16 @@ def wizard_step2():
                 "growth_qty": growth_qty_val,
                 "monthly": updated_monthly,
             }
+
+            save_label = f"💾 Salvar alterações de Produto/Serviço {i + 1}"
+            if st.button(save_label, key=f"save_rev_{i}"):
+                st.session_state.revenue[i] = updated_revenue
+                st.session_state.revenue_monthly[i] = updated_revenue_monthly
+                st.success("Alterações salvas com sucesso.")
+
+            # Mantém compatibilidade com dados pré-existentes para não perder itens recém-criados.
+            st.session_state.revenue.setdefault(i, updated_revenue)
+            st.session_state.revenue_monthly.setdefault(i, updated_revenue_monthly)
     # Option to add new product/service
     if st.button("+ Adicionar Produto/Serviço", key="add_rev"):
         st.session_state.revenue.append({"name": "", "price": 0.0, "qty": 0.0, "prazo": 0.0, "prazo_parcelas": 1})
