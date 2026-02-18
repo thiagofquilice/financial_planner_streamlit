@@ -348,12 +348,15 @@ def calc_viability(scenario_id: str, discount_m: float, reinvest_m: float) -> Di
 
     tir = compute_irr(flows)
 
-    pos = flows[flows > 0]
-    neg = flows[flows < 0]
-    if len(neg) > 0 and len(pos) > 0:
-        pv_neg = np.sum(neg / ((1 + discount_m) ** np.arange(1, len(neg) + 1)))
-        fv_pos = np.sum(pos * ((1 + reinvest_m) ** np.arange(len(pos), 0, -1)))
-        tirm = ((-fv_pos / pv_neg) ** (1 / len(flows))) - 1 if pv_neg < 0 else np.nan
+    pos_mask = flows > 0
+    neg_mask = flows < 0
+    if np.any(neg_mask) and np.any(pos_mask):
+        # TIRM (MIRR): desconta fluxos negativos para o período zero e capitaliza
+        # fluxos positivos até o último período, preservando o mês de cada fluxo.
+        n_periods = len(flows) - 1
+        pv_neg = np.sum(flows[neg_mask] / ((1 + discount_m) ** periods[neg_mask]))
+        fv_pos = np.sum(flows[pos_mask] * ((1 + reinvest_m) ** (n_periods - periods[pos_mask])))
+        tirm = ((-fv_pos / pv_neg) ** (1 / n_periods)) - 1 if pv_neg < 0 and n_periods > 0 else np.nan
     else:
         tirm = np.nan
 
