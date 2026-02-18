@@ -11,7 +11,8 @@ STEP_TITLES = [
     "Configuração mínima",
     "Economia unitária, variáveis e prazos",
     "Fixos e prazos de pagamento",
-    "Projeção de volume, cenários e ponto de equilíbrio",
+    "Projeção de volume e ponto de equilíbrio",
+    "Cenários e ponto de equilíbrio",
     "Investimentos (CAPEX)",
     "Fluxo de caixa mensal e necessidade de caixa",
     "Viabilidade: VPL, TIR, TIRM, Payback",
@@ -687,11 +688,43 @@ def regenerate_quantities(scenario: Dict[str, Any], item_id: str) -> None:
     scenario["quantities"][item_id] = q
 
 
+def _scenario_header_and_selection(step_number: int) -> Tuple[str, Dict[str, Any]]:
+    scenarios = st.session_state["scenarios"]
+    sids = list(scenarios.keys())
+    labels = [f"{sid} - {scenarios[sid]['name']}" for sid in sids]
+    selected_label = st.selectbox(
+        "Cenário ativo",
+        labels,
+        index=sids.index(st.session_state["current_scenario_id"]) if st.session_state["current_scenario_id"] in sids else 0,
+        key=f"scenario_active_step_{step_number}",
+    )
+    st.session_state["current_scenario_id"] = selected_label.split(" - ")[0]
+    sid = st.session_state["current_scenario_id"]
+    return sid, scenarios[sid]
+
+
+def _render_break_even_summary(sid: str, scenario: Dict[str, Any]) -> None:
+    st.markdown("### Resumo do cenário")
+    result = calculate_scenario(sid)
+    st.metric("MC consolidada (%)", f"{result['mc_consolid_pct']:.2%}")
+    if pd.notna(result["break_even_revenue"]):
+        st.metric("Ponto de Equilíbrio em Receita (mensal)", f"R$ {result['break_even_revenue']:,.2f}")
+    else:
+        st.info("Ponto de equilíbrio em receita indisponível enquanto a margem de contribuição consolidada for zero ou negativa.")
+
+    if len(st.session_state["items"]) == 1:
+        item = st.session_state["items"][0]
+        mc_u = unit_metrics(item, scenario)["mc_u"]
+        fixed_total = pd.DataFrame(st.session_state["fixed_costs"]).get("monthly_value", pd.Series(dtype=float)).fillna(0).sum() + pd.DataFrame(st.session_state["fixed_expenses"]).get("monthly_value", pd.Series(dtype=float)).fillna(0).sum()
+        if mc_u > 0:
+            st.metric("Ponto de Equilíbrio em Unidades", f"{fixed_total / mc_u:,.2f} {item['unit']}")
+
+
 def step4() -> None:
-    header(4, "Aqui você projeta quantas unidades vai vender e visualiza a receita mensal por item. Com o volume projetado, o app calcula a margem consolidada do cenário e o ponto de equilíbrio em receita.")
+    header(4, "Aqui você projeta quantas unidades vai vender e visualiza a receita mensal por item. Ao final, o app calcula o ponto de equilíbrio para o cenário ativo.")
     with st.expander("Instruções"):
         st.write(
-            "1) Escolha/crie um cenário.\n\n"
+            "1) Escolha o cenário ativo.\n\n"
             "2) Defina o tempo e o modo de projeção.\n\n"
             "3) Preencha as quantidades por item; a receita será calculada automaticamente.\n\n"
             "4) Veja o ponto de equilíbrio ao final."
@@ -703,29 +736,8 @@ def step4() -> None:
         render_next(4)
         return
 
-    st.markdown("### 1) Cenário ativo e criação")
-    scenarios = st.session_state["scenarios"]
-    sids = list(scenarios.keys())
-    labels = [f"{sid} - {scenarios[sid]['name']}" for sid in sids]
-    selected_label = st.selectbox("Cenário ativo", labels, index=sids.index(st.session_state["current_scenario_id"]) if st.session_state["current_scenario_id"] in sids else 0)
-    st.session_state["current_scenario_id"] = selected_label.split(" - ")[0]
-    sid = st.session_state["current_scenario_id"]
-    scenario = scenarios[sid]
-
-    c1, c2 = st.columns(2)
-    if c1.button("Criar cenário do zero"):
-        new_id = f"scenario_{len(scenarios)+1}"
-        scenarios[new_id] = default_scenario(f"Cenário {len(scenarios)+1}", [i["id"] for i in st.session_state["items"]])
-        st.session_state["current_scenario_id"] = new_id
-        st.rerun()
-    if c2.button("Clonar cenário atual"):
-        new_id = f"scenario_{len(scenarios)+1}"
-        scenarios[new_id] = deepcopy(scenario)
-        scenarios[new_id]["name"] = f"Cenário {len(scenarios)+1} (clone)"
-        st.session_state["current_scenario_id"] = new_id
-        st.rerun()
-
-    scenario["name"] = st.text_input("Nome do cenário", value=scenario.get("name", sid), key=f"scenario_name_{sid}")
+    st.markdown("### 1) Cenário ativo")
+    sid, scenario = _scenario_header_and_selection(step_number=4)
 
     st.markdown("### 2) Configurações de projeção")
     horizon = st.selectbox("Tempo de projeção (meses)", [12, 24, 36, 60], index=[12, 24, 36, 60].index(int(scenario.get("horizon_months", 12))), key=f"horizon_{sid}")
@@ -760,7 +772,39 @@ def step4() -> None:
         scenario["quantities"][iid] = qedit["Quantidade"].tolist()
         st.caption("Quantidades arredondadas para cima automaticamente.")
 
-    with st.expander("Ajustes do cenário (opcional): preço, tributos e prazos"):
+    _render_break_even_summary(sid, scenario)
+    render_next(4)
+
+
+def step5() -> None:
+    header(5, "Nesta etapa você cria e ajusta cenários para testar hipóteses de preço, tributos e prazos. Ao final, compare o impacto no ponto de equilíbrio.")
+
+    ensure_item_consistency()
+    if not st.session_state["items"]:
+        st.warning("Cadastre ao menos 1 item na Etapa 1.")
+        render_next(5)
+        return
+
+    st.markdown("### 1) Cenário ativo e criação")
+    sid, scenario = _scenario_header_and_selection(step_number=5)
+    scenarios = st.session_state["scenarios"]
+
+    c1, c2 = st.columns(2)
+    if c1.button("Criar cenário do zero"):
+        new_id = f"scenario_{len(scenarios)+1}"
+        scenarios[new_id] = default_scenario(f"Cenário {len(scenarios)+1}", [i["id"] for i in st.session_state["items"]])
+        st.session_state["current_scenario_id"] = new_id
+        st.rerun()
+    if c2.button("Clonar cenário atual"):
+        new_id = f"scenario_{len(scenarios)+1}"
+        scenarios[new_id] = deepcopy(scenario)
+        scenarios[new_id]["name"] = f"Cenário {len(scenarios)+1} (clone)"
+        st.session_state["current_scenario_id"] = new_id
+        st.rerun()
+
+    scenario["name"] = st.text_input("Nome do cenário", value=scenario.get("name", sid), key=f"scenario_name_{sid}")
+
+    with st.expander("2) Ajustes do cenário (opcional): preço, tributos e prazos"):
         ov = scenario["overrides"]
         for item in st.session_state["items"]:
             iid = item["id"]
@@ -775,25 +819,12 @@ def step4() -> None:
             ov["receive_days"][iid] = int(st.session_state[f"ov_recv_{sid}_{iid}"])
             ov["pay_days"][iid] = int(st.session_state[f"ov_pay_{sid}_{iid}"])
 
-    st.markdown("### 4) Resumo do cenário")
-    result = calculate_scenario(sid)
-    st.metric("MC consolidada (%)", f"{result['mc_consolid_pct']:.2%}")
-    if pd.notna(result["break_even_revenue"]):
-        st.metric("Ponto de Equilíbrio em Receita (mensal)", f"R$ {result['break_even_revenue']:,.2f}")
-    else:
-        st.info("Ponto de equilíbrio em receita indisponível enquanto a margem de contribuição consolidada for zero ou negativa.")
-
-    if len(st.session_state["items"]) == 1:
-        item = st.session_state["items"][0]
-        mc_u = unit_metrics(item, scenario)["mc_u"]
-        fixed_total = pd.DataFrame(st.session_state["fixed_costs"]).get("monthly_value", pd.Series(dtype=float)).fillna(0).sum() + pd.DataFrame(st.session_state["fixed_expenses"]).get("monthly_value", pd.Series(dtype=float)).fillna(0).sum()
-        if mc_u > 0:
-            st.metric("Ponto de Equilíbrio em Unidades", f"{fixed_total / mc_u:,.2f} {item['unit']}")
-    render_next(4)
+    _render_break_even_summary(sid, scenario)
+    render_next(5)
 
 
-def step5() -> None:
-    header(5, "Agora registre os investimentos necessários para colocar a operação de pé (equipamentos, desenvolvimento, implantação). Eles entram no fluxo de caixa como saídas de investimento.")
+def step6() -> None:
+    header(6, "Agora registre os investimentos necessários para colocar a operação de pé (equipamentos, desenvolvimento, implantação). Eles entram no fluxo de caixa como saídas de investimento.")
 
     df = pd.DataFrame(st.session_state["investments"])
     cfg = {
@@ -806,11 +837,11 @@ def step5() -> None:
     }
     edited = st.data_editor(df, key="investments_table", num_rows="dynamic", use_container_width=True, hide_index=True, column_config=cfg)
     st.session_state["investments"] = edited.to_dict("records")
-    render_next(5)
+    render_next(6)
 
 
-def step6() -> None:
-    header(6, "O fluxo de caixa mostra quando o dinheiro entra e sai de verdade. O app destaca o pior momento do caixa acumulado, que costuma indicar a necessidade de caixa para sustentar a operação até ela se pagar.")
+def step7() -> None:
+    header(7, "O fluxo de caixa mostra quando o dinheiro entra e sai de verdade. O app destaca o pior momento do caixa acumulado, que costuma indicar a necessidade de caixa para sustentar a operação até ela se pagar.")
 
     sid = st.session_state["current_scenario_id"]
     res = calculate_scenario(sid)
@@ -820,11 +851,11 @@ def step6() -> None:
         f"Necessidade de caixa (pico de déficit operacional): R$ {abs(min(0, res['valley'])):,.2f} no mês {res['valley_month']}."
     )
     st.caption("Definição: o menor valor do caixa acumulado ao longo do período; indica quanto seria necessário financiar para atravessar o período mais negativo.")
-    render_next(6)
+    render_next(7)
 
 
-def step7() -> None:
-    header(7, "Com o fluxo de caixa pronto, o app calcula indicadores clássicos para avaliar se o projeto compensa. Se você for iniciante, foque primeiro em VPL (Valor Presente Líquido) e Payback.")
+def step8() -> None:
+    header(8, "Com o fluxo de caixa pronto, o app calcula indicadores clássicos para avaliar se o projeto compensa. Se você for iniciante, foque primeiro em VPL (Valor Presente Líquido) e Payback.")
     with st.expander("Instruções"):
         st.write(
             "- Taxa mínima desejada é o retorno que você exige para considerar o projeto atrativo.\n\n"
@@ -849,11 +880,11 @@ def step7() -> None:
     with st.expander("Avançado"):
         st.metric("TIR (Taxa Interna de Retorno)", "N/A" if pd.isna(v["tir"]) else f"{v['tir']:.2%}")
         st.metric("TIRM (Taxa Interna de Retorno Modificada)", "N/A" if pd.isna(v["tirm"]) else f"{v['tirm']:.2%}")
-    render_next(7)
+    render_next(8)
 
 
-def step8() -> None:
-    header(8, "Por fim, veja como o seu modelo aparece em demonstrativos. A DRE (Demonstração do Resultado do Exercício) é por competência (o que foi vendido/consumido no mês). O Fluxo de Caixa é por caixa (o que entrou/saiu de dinheiro no mês).")
+def step9() -> None:
+    header(9, "Por fim, veja como o seu modelo aparece em demonstrativos. A DRE (Demonstração do Resultado do Exercício) é por competência (o que foi vendido/consumido no mês). O Fluxo de Caixa é por caixa (o que entrou/saiu de dinheiro no mês).")
     sid = st.session_state["current_scenario_id"]
     res = calculate_scenario(sid)
 
@@ -887,6 +918,7 @@ def main() -> None:
         6: step6,
         7: step7,
         8: step8,
+        9: step9,
     }
     step_fn.get(st.session_state["step"], step1)()
 
