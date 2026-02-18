@@ -833,10 +833,9 @@ def step4() -> None:
     header(4, "Aqui você projeta quantas unidades vai vender e visualiza a receita mensal por item. Ao final, o app calcula o ponto de equilíbrio para o cenário ativo.")
     with st.expander("Instruções"):
         st.write(
-            "1) Escolha o cenário ativo.\n\n"
-            "2) Defina o tempo e o modo de projeção.\n\n"
-            "3) Preencha as quantidades por item e a taxa de crescimento em porcentagem; a receita será calculada automaticamente.\n\n"
-            "4) Veja o ponto de equilíbrio ao final."
+            "1) Defina o tempo e o modo de projeção.\n\n"
+            "2) Preencha as quantidades por item e a taxa de crescimento em porcentagem; a receita será calculada automaticamente.\n\n"
+            "3) Veja o ponto de equilíbrio ao final."
         )
 
     ensure_item_consistency()
@@ -845,10 +844,10 @@ def step4() -> None:
         render_next(4)
         return
 
-    st.markdown("### 1) Cenário ativo")
+    st.markdown("### Cenário base")
     sid, scenario = _scenario_header_and_selection(step_number=4)
 
-    st.markdown("### 2) Configurações de projeção")
+    st.markdown("### 1) Configurações de projeção")
     horizon = st.selectbox("Tempo de projeção (meses)", [12, 24, 36, 60], index=[12, 24, 36, 60].index(int(scenario.get("horizon_months", 12))), key=f"horizon_{sid}")
     scenario["horizon_months"] = horizon
     for iid in scenario["quantities"]:
@@ -857,7 +856,7 @@ def step4() -> None:
     scenario["projection_mode"] = st.radio("Modo para quantidades", ["manual", "base_growth"], format_func=lambda x: "Inserir manualmente mês a mês" if x == "manual" else "Definir quantidade base e taxa de crescimento mensal", horizontal=True, key=f"mode_{sid}")
     st.caption("Você pode começar com base + crescimento e depois ajustar manualmente.")
 
-    st.markdown("### 3) Projeção por produto/serviço")
+    st.markdown("### 2) Projeção por produto/serviço")
 
     for item in st.session_state["items"]:
         iid = item["id"]
