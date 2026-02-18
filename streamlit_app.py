@@ -416,6 +416,13 @@ def step1() -> None:
 
 
 def _editable_variable_table(df: pd.DataFrame, key: str, expense: bool = False) -> pd.DataFrame:
+    normalized = df.copy()
+    expected_cols = ["name", "qty", "unit_value"] + (["classification"] if expense else [])
+    for col in expected_cols:
+        if col not in normalized.columns:
+            normalized[col] = "" if col in {"name", "classification"} else 0.0
+    normalized = normalized[expected_cols]
+
     base_cols = {
         "name": st.column_config.TextColumn("Item"),
         "qty": st.column_config.NumberColumn("Quantidade unitária", min_value=0.0, step=0.1),
@@ -425,7 +432,7 @@ def _editable_variable_table(df: pd.DataFrame, key: str, expense: bool = False) 
         base_cols["classification"] = st.column_config.SelectboxColumn("Classificação", options=["Operacional", "Vendas"])
 
     edited = st.data_editor(
-        df,
+        normalized,
         key=key,
         num_rows="dynamic",
         use_container_width=True,
@@ -436,6 +443,8 @@ def _editable_variable_table(df: pd.DataFrame, key: str, expense: bool = False) 
         edited["qty"] = 0.0
     if "unit_value" not in edited.columns:
         edited["unit_value"] = 0.0
+    edited["qty"] = pd.to_numeric(edited["qty"], errors="coerce").fillna(0.0)
+    edited["unit_value"] = pd.to_numeric(edited["unit_value"], errors="coerce").fillna(0.0)
     edited["total"] = edited["qty"].fillna(0) * edited["unit_value"].fillna(0)
     return edited
 
@@ -539,13 +548,23 @@ def step2() -> None:
         )
 
         st.markdown("**Custos Variáveis**")
-        cdf = _editable_variable_table(pd.DataFrame(econ.get("variable_costs", [])), key=f"vcost_{iid}")
-        econ["variable_costs"] = cdf.drop(columns=["total"]).to_dict("records")
+        st.caption("Use Tab ou Enter para ir para a próxima célula. Ao concluir, clique em 'Salvar'.")
+        with st.form(key=f"form_vcost_{iid}", enter_to_submit=False, clear_on_submit=False):
+            cdf = _editable_variable_table(pd.DataFrame(econ.get("variable_costs", [])), key=f"vcost_{iid}")
+            save_costs = st.form_submit_button("Salvar custos variáveis")
+        if save_costs:
+            econ["variable_costs"] = cdf.drop(columns=["total"]).to_dict("records")
+            st.success("Custos variáveis salvos.")
         st.caption(f"Total de custos variáveis unitários: R$ {cdf['total'].sum():,.2f}")
 
         st.markdown("**Despesas Variáveis**")
-        edf = _editable_variable_table(pd.DataFrame(econ.get("variable_expenses", [])), key=f"vexp_{iid}", expense=True)
-        econ["variable_expenses"] = edf.drop(columns=["total"]).to_dict("records")
+        st.caption("Use Tab ou Enter para ir para a próxima célula. Ao concluir, clique em 'Salvar'.")
+        with st.form(key=f"form_vexp_{iid}", enter_to_submit=False, clear_on_submit=False):
+            edf = _editable_variable_table(pd.DataFrame(econ.get("variable_expenses", [])), key=f"vexp_{iid}", expense=True)
+            save_expenses = st.form_submit_button("Salvar despesas variáveis")
+        if save_expenses:
+            econ["variable_expenses"] = edf.drop(columns=["total"]).to_dict("records")
+            st.success("Despesas variáveis salvas.")
         st.caption(f"Total de despesas variáveis unitárias: R$ {edf['total'].sum():,.2f}")
 
         p1, p2 = st.columns(2)
