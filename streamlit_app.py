@@ -11,7 +11,7 @@ STEP_TITLES = [
     "Configuração mínima",
     "Economia unitária, variáveis e prazos",
     "Fixos e prazos de pagamento",
-    "Projeção de volume, cenários, equilíbrio e alavancagem",
+    "Projeção de volume, cenários e ponto de equilíbrio",
     "Investimentos (CAPEX)",
     "Fluxo de caixa mensal e necessidade de caixa",
     "Viabilidade: VPL, TIR, TIRM, Payback",
@@ -270,17 +270,6 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
     if net_total > 0:
         mc_consolid_pct = mc_total / net_total
     pe_revenue = (fixed_total / mc_consolid_pct) if mc_consolid_pct > 0 else np.nan
-
-    # GAO
-    gao_series = []
-    for _, row in dre_monthly.iterrows():
-        ebit = float(row["EBIT"])
-        mc = float(row["Margem de contribuição"])
-        if ebit > 1e-6:
-            gao_series.append(mc / ebit)
-        else:
-            gao_series.append(np.nan)
-    dre_monthly["GAO"] = gao_series
 
     res = {
         "dre_monthly": dre_monthly,
@@ -692,19 +681,20 @@ def regenerate_quantities(scenario: Dict[str, Any], item_id: str) -> None:
     q = []
     curr = base
     for _ in range(horizon):
-        q.append(curr)
+        qty_ceiled = math.ceil(max(0.0, curr))
+        q.append(float(qty_ceiled))
         curr = curr * (1 + growth)
     scenario["quantities"][item_id] = q
 
 
 def step4() -> None:
-    header(4, "Aqui você projeta quantas unidades vai vender ao longo do tempo. Com isso, o app calcula o ponto de equilíbrio e mostra o efeito da alavancagem operacional: como a estrutura fixa pode amplificar ganhos (ou perdas) conforme o volume muda.")
+    header(4, "Aqui você projeta quantas unidades vai vender e visualiza a receita mensal por item. Com o volume projetado, o app calcula a margem consolidada do cenário e o ponto de equilíbrio em receita.")
     with st.expander("Instruções"):
         st.write(
-            "- Projeção de volume é quantas unidades você espera vender por mês.\n\n"
-            "- Cenários servem para comparar hipóteses: base, otimista, conservador.\n\n"
-            "- Ponto de equilíbrio é o nível de vendas em que o resultado operacional fica zero.\n\n"
-            "- A alavancagem operacional aumenta quando seus fixos são altos: o resultado melhora (ou piora) mais rápido com o volume."
+            "1) Escolha/crie um cenário.\n\n"
+            "2) Defina o tempo e o modo de projeção.\n\n"
+            "3) Preencha as quantidades por item; a receita será calculada automaticamente.\n\n"
+            "4) Veja o ponto de equilíbrio ao final."
         )
 
     ensure_item_consistency()
@@ -713,6 +703,7 @@ def step4() -> None:
         render_next(4)
         return
 
+    st.markdown("### 1) Cenário ativo e criação")
     scenarios = st.session_state["scenarios"]
     sids = list(scenarios.keys())
     labels = [f"{sid} - {scenarios[sid]['name']}" for sid in sids]
@@ -735,12 +726,17 @@ def step4() -> None:
         st.rerun()
 
     scenario["name"] = st.text_input("Nome do cenário", value=scenario.get("name", sid), key=f"scenario_name_{sid}")
+
+    st.markdown("### 2) Configurações de projeção")
     horizon = st.selectbox("Tempo de projeção (meses)", [12, 24, 36, 60], index=[12, 24, 36, 60].index(int(scenario.get("horizon_months", 12))), key=f"horizon_{sid}")
     scenario["horizon_months"] = horizon
     for iid in scenario["quantities"]:
         scenario["quantities"][iid] = resize_series(scenario["quantities"][iid], horizon)
 
     scenario["projection_mode"] = st.radio("Modo para quantidades", ["manual", "base_growth"], format_func=lambda x: "Inserir manualmente mês a mês" if x == "manual" else "Definir quantidade base e taxa de crescimento mensal", horizontal=True, key=f"mode_{sid}")
+    st.caption("Você pode começar com base + crescimento e depois ajustar manualmente.")
+
+    st.markdown("### 3) Projeção por produto/serviço")
 
     for item in st.session_state["items"]:
         iid = item["id"]
@@ -752,17 +748,34 @@ def step4() -> None:
             if b3.button("Gerar série", key=f"gen_{sid}_{iid}"):
                 regenerate_quantities(scenario, iid)
 
+        econ = st.session_state["unit_economics"][iid]
+        price_eff = float(scenario["overrides"]["price"].get(iid, econ.get("price", 0.0)) or 0.0)
         qdf = pd.DataFrame({"Mês": range(1, horizon + 1), "Quantidade": scenario["quantities"][iid]})
+        qdf["Quantidade"] = np.ceil(pd.to_numeric(qdf["Quantidade"], errors="coerce").fillna(0.0)).astype(float)
+        qdf["Receita"] = qdf["Quantidade"] * price_eff
+        st.caption("Receita = quantidade × preço (do cenário).")
         qedit = st.data_editor(qdf, hide_index=True, key=f"qtable_{sid}_{iid}", use_container_width=True, num_rows="fixed")
-        scenario["quantities"][iid] = qedit["Quantidade"].fillna(0).astype(float).tolist()
+        qedit["Quantidade"] = np.ceil(pd.to_numeric(qedit["Quantidade"], errors="coerce").fillna(0.0)).astype(float)
+        qedit["Receita"] = qedit["Quantidade"] * price_eff
+        scenario["quantities"][iid] = qedit["Quantidade"].tolist()
+        st.caption("Quantidades arredondadas para cima automaticamente.")
 
-        with st.expander(f"Overrides do cenário para {item['name']} (opcional)"):
-            ov = scenario["overrides"]
-            ov["price"][iid] = st.number_input("Preço override", min_value=0.0, step=0.01, value=float(ov["price"].get(iid, st.session_state["unit_economics"][iid].get("price", 0.0))), key=f"ov_price_{sid}_{iid}")
-            ov["tax_rate"][iid] = st.number_input("Alíquota override", min_value=0.0, max_value=1.0, step=0.005, value=float(ov["tax_rate"].get(iid, st.session_state["unit_economics"][iid].get("tax_rate", 0.0))), format="%.4f", key=f"ov_tax_{sid}_{iid}")
-            ov["receive_days"][iid] = st.number_input("Prazo recebimento override (dias)", min_value=0, step=1, value=int(ov["receive_days"].get(iid, st.session_state["unit_economics"][iid].get("receive_days", 0))), key=f"ov_recv_{sid}_{iid}")
-            ov["pay_days"][iid] = st.number_input("Prazo pagamento override (dias)", min_value=0, step=1, value=int(ov["pay_days"].get(iid, st.session_state["unit_economics"][iid].get("pay_days", 0))), key=f"ov_pay_{sid}_{iid}")
+    with st.expander("Ajustes do cenário (opcional): preço, tributos e prazos"):
+        ov = scenario["overrides"]
+        for item in st.session_state["items"]:
+            iid = item["id"]
+            st.markdown(f"**{item['name']}**")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.number_input("Preço", min_value=0.0, step=0.01, value=float(ov["price"].get(iid, st.session_state["unit_economics"][iid].get("price", 0.0))), key=f"ov_price_{sid}_{iid}")
+            c2.number_input("Tributos", min_value=0.0, max_value=1.0, step=0.005, value=float(ov["tax_rate"].get(iid, st.session_state["unit_economics"][iid].get("tax_rate", 0.0))), format="%.4f", key=f"ov_tax_{sid}_{iid}")
+            c3.number_input("Receb. (dias)", min_value=0, step=1, value=int(ov["receive_days"].get(iid, st.session_state["unit_economics"][iid].get("receive_days", 0))), key=f"ov_recv_{sid}_{iid}")
+            c4.number_input("Pagto. (dias)", min_value=0, step=1, value=int(ov["pay_days"].get(iid, st.session_state["unit_economics"][iid].get("pay_days", 0))), key=f"ov_pay_{sid}_{iid}")
+            ov["price"][iid] = float(st.session_state[f"ov_price_{sid}_{iid}"])
+            ov["tax_rate"][iid] = float(st.session_state[f"ov_tax_{sid}_{iid}"])
+            ov["receive_days"][iid] = int(st.session_state[f"ov_recv_{sid}_{iid}"])
+            ov["pay_days"][iid] = int(st.session_state[f"ov_pay_{sid}_{iid}"])
 
+    st.markdown("### 4) Resumo do cenário")
     result = calculate_scenario(sid)
     st.metric("MC consolidada (%)", f"{result['mc_consolid_pct']:.2%}")
     if pd.notna(result["break_even_revenue"]):
@@ -776,13 +789,6 @@ def step4() -> None:
         fixed_total = pd.DataFrame(st.session_state["fixed_costs"]).get("monthly_value", pd.Series(dtype=float)).fillna(0).sum() + pd.DataFrame(st.session_state["fixed_expenses"]).get("monthly_value", pd.Series(dtype=float)).fillna(0).sum()
         if mc_u > 0:
             st.metric("Ponto de Equilíbrio em Unidades", f"{fixed_total / mc_u:,.2f} {item['unit']}")
-
-    st.markdown("### Grau de Alavancagem Operacional (GAO)")
-    gao_df = result["dre_monthly"][["Mês", "EBIT", "GAO"]].copy()
-    if gao_df["GAO"].notna().any():
-        st.dataframe(gao_df, use_container_width=True)
-    else:
-        st.info("GAO não é informativa quando o resultado operacional (EBIT) está próximo de zero.")
     render_next(4)
 
 
