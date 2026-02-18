@@ -288,6 +288,7 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
             investment_cash[month] -= value
 
     net_monthly_cash = operational_cash + investment_cash
+    accumulated_operational = np.cumsum(operational_cash)
     accumulated = np.cumsum(net_monthly_cash)
     valley_idx = int(np.argmin(accumulated)) if len(accumulated) else 0
 
@@ -299,6 +300,7 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
         {
             "Mês": cash_months,
             "Caixa Operacional": operational_cash,
+            "Caixa Operacional Acumulado": accumulated_operational,
             "Caixa de Investimento": investment_cash,
             "Caixa Líquido do Mês": net_monthly_cash,
             "Caixa Acumulado": accumulated,
@@ -921,9 +923,20 @@ def step6() -> None:
     sid = st.session_state["current_scenario_id"]
     res = calculate_scenario(sid)
     fc = res["fc_monthly"].copy()
-    st.dataframe(fc[["Mês", "Caixa Operacional", "Caixa de Investimento", "Caixa Líquido do Mês", "Caixa Acumulado"]], use_container_width=True, hide_index=True)
+    st.dataframe(
+        fc[[
+            "Mês",
+            "Caixa Operacional",
+            "Caixa Operacional Acumulado",
+            "Caixa de Investimento",
+            "Caixa Líquido do Mês",
+            "Caixa Acumulado",
+        ]],
+        use_container_width=True,
+        hide_index=True,
+    )
 
-    acum_operacional = fc["Caixa Operacional"].cumsum()
+    acum_operacional = fc["Caixa Operacional Acumulado"]
     valley_oper = float(acum_operacional.min()) if not acum_operacional.empty else 0.0
     valley_oper_month = int(fc.loc[acum_operacional.idxmin(), "Mês"]) if not acum_operacional.empty else 1
     valley_total = float(fc["Caixa Acumulado"].min()) if not fc.empty else 0.0
