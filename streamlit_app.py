@@ -105,6 +105,11 @@ def payment_shift_month(days: int) -> int:
     return max(0, int(math.floor((days or 0) / 30)))
 
 
+def annual_rate_percent_to_monthly_decimal(annual_percent: float) -> float:
+    annual_decimal = max(-0.9999, float(annual_percent or 0.0) / 100)
+    return (1 + annual_decimal) ** (1 / 12) - 1
+
+
 def unit_metrics(item: Dict[str, Any], scenario: Dict[str, Any]) -> Dict[str, float]:
     iid = item["id"]
     econ = st.session_state["unit_economics"].get(iid, default_unit_econ(iid))
@@ -839,15 +844,36 @@ def step5() -> None:
     header(5, "Agora registre os investimentos necessários para colocar a operação de pé (equipamentos, desenvolvimento, implantação). Eles entram no fluxo de caixa como saídas de investimento.")
 
     df = pd.DataFrame(st.session_state["investments"])
+    if df.empty:
+        df = pd.DataFrame([{"item": "", "category": "CAPEX", "month": 1, "value": 0.0, "payment": "À vista"}])
+
+    for col, default in {
+        "item": "",
+        "category": "CAPEX",
+        "month": 1,
+        "value": 0.0,
+        "payment": "À vista",
+    }.items():
+        if col not in df.columns:
+            df[col] = default
+
+    df = df[["item", "category", "month", "value", "payment"]]
     cfg = {
         "item": st.column_config.TextColumn("Item"),
         "category": st.column_config.SelectboxColumn("Categoria", options=["CAPEX", "Implementação", "Outros"]),
         "month": st.column_config.NumberColumn("Mês de realização", min_value=1, step=1),
         "value": st.column_config.NumberColumn("Valor", min_value=0.0, step=0.01, format="R$ %.2f"),
         "payment": st.column_config.SelectboxColumn("Forma de pagamento", options=["À vista", "Parcelado"]),
-        "installments": st.column_config.NumberColumn("Número de parcelas", min_value=1, step=1),
     }
     edited = st.data_editor(df, key="investments_table", num_rows="dynamic", use_container_width=True, hide_index=True, column_config=cfg)
+
+    edited["month"] = pd.to_numeric(edited.get("month", 1), errors="coerce").fillna(1).clip(lower=1).astype(int)
+    edited["value"] = pd.to_numeric(edited.get("value", 0.0), errors="coerce").fillna(0.0)
+    edited["item"] = edited.get("item", "").fillna("")
+    edited["category"] = edited.get("category", "CAPEX").fillna("CAPEX")
+    edited["payment"] = edited.get("payment", "À vista").fillna("À vista")
+    edited["installments"] = 1
+
     st.session_state["investments"] = edited.to_dict("records")
     render_next(5)
 
@@ -859,10 +885,21 @@ def step6() -> None:
     res = calculate_scenario(sid)
     fc = res["fc_monthly"].copy()
     st.dataframe(fc[["Mês", "Caixa Operacional", "Caixa de Investimento", "Caixa Líquido do Mês", "Caixa Acumulado"]], use_container_width=True)
-    st.error(
-        f"Necessidade de caixa (pico de déficit operacional): R$ {abs(min(0, res['valley'])):,.2f} no mês {res['valley_month']}."
+
+    acum_operacional = fc["Caixa Operacional"].cumsum()
+    valley_oper = float(acum_operacional.min()) if not acum_operacional.empty else 0.0
+    valley_oper_month = int(fc.loc[acum_operacional.idxmin(), "Mês"]) if not acum_operacional.empty else 1
+    valley_total = float(fc["Caixa Acumulado"].min()) if not fc.empty else 0.0
+    valley_total_month = int(fc.loc[fc["Caixa Acumulado"].idxmin(), "Mês"]) if not fc.empty else 1
+
+    c1, c2 = st.columns(2)
+    c1.error(
+        f"Necessidade de caixa sem Caixa de Investimento: R$ {abs(min(0, valley_oper)):,.2f} no mês {valley_oper_month}."
     )
-    st.caption("Definição: o menor valor do caixa acumulado ao longo do período; indica quanto seria necessário financiar para atravessar o período mais negativo.")
+    c2.error(
+        f"Necessidade de caixa com Caixa de Investimento: R$ {abs(min(0, valley_total)):,.2f} no mês {valley_total_month}."
+    )
+    st.caption("Definição: menor valor do caixa acumulado. O primeiro considera somente a operação; o segundo inclui também desembolsos de investimento.")
     render_next(6)
 
 
@@ -878,9 +915,49 @@ def step7() -> None:
 
     sid = st.session_state["current_scenario_id"]
     c1, c2 = st.columns(2)
-    discount = c1.number_input("Taxa mínima desejada (mensal)", min_value=0.0, step=0.001, value=0.01, format="%.4f", key="discount_rate")
-    reinvest = c2.number_input("Taxa de reinvestimento para TIRM (Taxa Interna de Retorno Modificada)", min_value=0.0, step=0.001, value=float(discount), format="%.4f", key="reinvest_rate")
+    discount_annual_pct = c1.number_input(
+        "Taxa mínima desejada (TMA) ao ano (%)",
+        min_value=0.0,
+        step=0.1,
+        value=float(st.session_state.get("discount_rate_annual_pct", 12.0)),
+        format="%.2f",
+        key="discount_rate_annual_pct",
+    )
+    repeat_tma = c2.checkbox(
+        "Na TIRM, deseja repetir a TMA como taxa de reinvestimento?",
+        value=bool(st.session_state.get("reinvest_repeat_tma", True)),
+        key="reinvest_repeat_tma",
+    )
 
+    if repeat_tma:
+        reinvest_annual_pct = float(discount_annual_pct)
+        st.session_state["reinvest_rate_annual_pct"] = reinvest_annual_pct
+        c2.number_input(
+            "Taxa de reinvestimento para TIRM ao ano (%)",
+            min_value=0.0,
+            step=0.1,
+            value=float(reinvest_annual_pct),
+            format="%.2f",
+            key="reinvest_rate_annual_pct_view",
+            disabled=True,
+        )
+    else:
+        reinvest_annual_pct = c2.number_input(
+            "Taxa de reinvestimento para TIRM ao ano (%)",
+            min_value=0.0,
+            step=0.1,
+            value=float(st.session_state.get("reinvest_rate_annual_pct", float(discount_annual_pct))),
+            format="%.2f",
+            key="reinvest_rate_annual_pct",
+        )
+
+    discount = annual_rate_percent_to_monthly_decimal(discount_annual_pct)
+    reinvest = annual_rate_percent_to_monthly_decimal(reinvest_annual_pct)
+    st.session_state["discount_rate"] = discount
+    st.session_state["reinvest_rate"] = reinvest
+    st.caption(f"Taxa mensal equivalente (TMA): {discount:.4%} | Taxa mensal equivalente (reinvestimento TIRM): {reinvest:.4%}")
+
+    res = calculate_scenario(sid)
     v = calc_viability(sid, discount, reinvest)
 
     st.markdown("### Resumo simples")
@@ -892,6 +969,35 @@ def step7() -> None:
     with st.expander("Avançado"):
         st.metric("TIR (Taxa Interna de Retorno)", "N/A" if pd.isna(v["tir"]) else f"{v['tir']:.2%}")
         st.metric("TIRM (Taxa Interna de Retorno Modificada)", "N/A" if pd.isna(v["tirm"]) else f"{v['tirm']:.2%}")
+
+    st.markdown("### Margem de contribuição e ponto de equilíbrio")
+    dre = res["dre_monthly"]
+    mc_total = float(dre["Margem de contribuição"].sum()) if not dre.empty else 0.0
+    qty_total = 0.0
+    for item in st.session_state["items"]:
+        iid = item["id"]
+        qty_total += float(np.sum(st.session_state["scenarios"][sid].get("quantities", {}).get(iid, [])))
+    mc_unitaria_media = mc_total / qty_total if qty_total > 0 else np.nan
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("MC total", f"R$ {mc_total:,.2f}")
+    m2.metric("MC unitária média", "N/A" if pd.isna(mc_unitaria_media) else f"R$ {mc_unitaria_media:,.2f}")
+    m3.metric("Ponto de equilíbrio (receita)", "N/A" if pd.isna(res["break_even_revenue"]) else f"R$ {res['break_even_revenue']:,.2f}")
+
+    st.markdown("### Quadros de apoio às análises")
+    if st.checkbox("Exibir quadro base de VPL/TIR/TIRM/Payback", key="show_viability_base_table"):
+        base_viab = res["fc_monthly"][["Mês", "Caixa Líquido do Mês"]].copy()
+        base_viab["Fluxo descontado (TMA)"] = base_viab["Caixa Líquido do Mês"] / ((1 + discount) ** base_viab["Mês"])
+        base_viab["Acumulado simples"] = base_viab["Caixa Líquido do Mês"].cumsum()
+        base_viab["Acumulado descontado"] = base_viab["Fluxo descontado (TMA)"].cumsum()
+        st.dataframe(base_viab, use_container_width=True, hide_index=True)
+
+    if st.checkbox("Exibir quadro base de MC e Ponto de Equilíbrio", key="show_mc_pe_base_table"):
+        base_mc = dre[["Mês", "Receita líquida", "Custos variáveis", "Despesas variáveis", "Margem de contribuição"]].copy()
+        st.dataframe(base_mc, use_container_width=True, hide_index=True)
+
+    if st.checkbox("Exibir quadro detalhado de fluxo de caixa mensal", key="show_cashflow_detail_table"):
+        st.dataframe(res["fc_monthly"], use_container_width=True, hide_index=True)
     render_next(7)
 
 
