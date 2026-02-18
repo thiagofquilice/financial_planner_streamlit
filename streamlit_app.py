@@ -362,6 +362,15 @@ def header(step: int, text: str) -> None:
     st.caption(text)
 
 
+def render_next(step: int, enabled: bool = True, disabled_help: str = "") -> None:
+    st.markdown("---")
+    if not enabled and disabled_help:
+        st.info(disabled_help)
+    if st.button("Próxima etapa →", key=f"next_step_{step}", disabled=not enabled):
+        st.session_state["step"] = min(step + 1, len(STEP_TITLES))
+        st.rerun()
+
+
 def step1() -> None:
     header(
         1,
@@ -372,8 +381,12 @@ def step1() -> None:
     b["name"] = st.text_input("Nome do negócio (opcional)", value=b.get("name", ""), key="business_name")
     b["start_period"] = st.date_input("Data inicial do planejamento", value=b.get("start_period"), key="business_start")
 
-    with st.expander("Ajuda rápida"):
-        st.write("Se você vende apenas um serviço, cadastre um único item. Se vende mais de um produto/serviço, cadastre todos — o app vai consolidar depois.")
+    with st.expander("Instruções"):
+        st.write(
+            "- Cadastre pelo menos um produto/serviço. Se você tem apenas um serviço (ex.: consultoria), crie um único item.\n\n"
+            "- A ‘unidade de venda’ é como você cobra: unidade, hora, mensalidade, diária etc.\n\n"
+            "- Nas próximas etapas você vai montar a margem por unidade, depois somar custos fixos, projetar vendas e chegar ao fluxo de caixa."
+        )
 
     st.markdown("#### Produtos/serviços")
     if st.button("Adicionar produto/serviço", key="add_item"):
@@ -398,6 +411,8 @@ def step1() -> None:
     st.write("**Itens cadastrados:**")
     if st.session_state["items"]:
         st.table(pd.DataFrame(st.session_state["items"])[["name", "unit"]].rename(columns={"name": "Produto/serviço", "unit": "Unidade"}))
+
+    render_next(1, enabled=bool(st.session_state["items"]), disabled_help="Cadastre ao menos 1 produto/serviço para habilitar a próxima etapa.")
 
 
 def _editable_variable_table(df: pd.DataFrame, key: str, expense: bool = False) -> pd.DataFrame:
@@ -428,26 +443,91 @@ def _editable_variable_table(df: pd.DataFrame, key: str, expense: bool = False) 
 def step2() -> None:
     header(
         2,
-        "Aqui você monta a ‘economia unitária’ (unit economics (economia unitária)) de cada produto/serviço: quanto sobra, por unidade vendida, para pagar os custos e despesas fixos e gerar lucro. Também vamos registrar prazos médios de recebimento e pagamento, que afetam o caixa.",
+        "Aqui você monta a ‘economia unitária’ (unit economics) de cada produto/serviço: quanto sobra, por unidade vendida, para pagar os custos e despesas fixos e gerar lucro. Também vamos registrar prazos médios de recebimento e pagamento, que afetam o caixa.",
     )
-    with st.expander("Ajuda curta"):
-        st.write("- Tributos sobre receita (como Simples Nacional) funcionam como um desconto do preço: entram antes de calcular a margem.\n\n- Custos variáveis mudam com a quantidade vendida (ex.: insumos). Despesas variáveis também variam com as vendas (ex.: comissões, taxas de marketplace).")
+    with st.expander("Instruções"):
+        st.write(
+            "- Nesta etapa, você calcula quanto realmente sobra por unidade vendida depois de tributos, custos variáveis e despesas variáveis.\n\n"
+            "- Comece preenchendo preço e tributos. Em seguida, detalhe custos/despesas que variam com cada venda para chegar à margem de contribuição unitária.\n\n"
+            "- Os prazos de recebimento e pagamento não mudam o lucro, mas mudam o momento em que o dinheiro entra e sai do caixa."
+        )
+
+    with st.expander("Mais informações: como o Simples Nacional funciona"):
+        st.write(
+            "- O Simples Nacional organiza atividades em Anexos (I a V). Cada Anexo tem faixas de receita bruta acumulada em 12 meses (RBT12) e uma alíquota nominal para cada faixa.\n\n"
+            "- Na prática, muitas empresas usam a ‘alíquota efetiva’, calculada pela fórmula: Alíquota efetiva = ((RBT12 × Alíquota nominal) − Parcela a deduzir) ÷ RBT12.\n\n"
+            "- Por isso, duas empresas no mesmo Anexo podem pagar percentuais diferentes dependendo do faturamento.\n\n"
+            "- Em alguns serviços (Anexos III e V), existe o Fator R (relação entre folha de pagamento e receita), que pode alterar o Anexo aplicável. Este app vai tratar isso como uma evolução futura/avançada (ou como ajuste manual, se você preferir)."
+        )
+
+    with st.expander("Mais informações: custos e despesas variáveis (comércio, indústria e serviços)"):
+        st.write(
+            "- Custos variáveis aumentam quando você vende mais. Em geral, estão ligados à entrega/produção do que você vende.\n\n"
+            "- Despesas variáveis também variam com vendas, mas estão ligadas ao processo de vender e operar (canais, taxas e comissões).\n\n"
+            "- Comércio:\n"
+            "  - Custos variáveis: custo da mercadoria vendida (CMV), frete por pedido (se pago por venda), embalagem por pedido.\n"
+            "  - Despesas variáveis: taxas de cartão, comissões de marketplace, comissão de vendedores, anúncios por conversão.\n\n"
+            "- Indústria:\n"
+            "  - Custos variáveis: matéria-prima por unidade, insumos, energia por produção, mão de obra diretamente proporcional (quando aplicável).\n"
+            "  - Despesas variáveis: comissões, taxas de venda, logística por pedido.\n\n"
+            "- Serviços:\n"
+            "  - Custos variáveis: horas de profissionais alocadas diretamente por projeto/cliente (quando pagas por entrega), ferramentas cobradas por uso, terceirização por projeto.\n"
+            "  - Despesas variáveis: comissões, taxas de plataforma, custos de aquisição por venda (quando medidos por conversão).\n\n"
+            "- Dica prática: se um gasto acontece mesmo que você venda zero, ele tende a ser fixo. Se cresce quando você vende mais, tende a ser variável."
+        )
 
     if not st.session_state["items"]:
         st.warning("Cadastre ao menos 1 item na Etapa 1.")
+        render_next(2)
         return
 
     ensure_item_consistency()
+    anexo_min_rate = {
+        "Anexo I (Comércio)": 0.04,
+        "Anexo II (Indústria)": 0.045,
+        "Anexo III (Serviços)": 0.06,
+        "Anexo IV (Serviços — construção/limpeza/vigilância, etc.)": 0.045,
+        "Anexo V (Serviços — técnicos/intelectuais, etc.)": 0.155,
+    }
 
     summary = []
     for item in st.session_state["items"]:
         iid = item["id"]
         econ = st.session_state["unit_economics"][iid]
+        if "simples_anexo" not in econ:
+            econ["simples_anexo"] = "Anexo III (Serviços)"
         st.markdown(f"### {item['name']} ({item['unit']})")
 
         c1, c2 = st.columns(2)
         econ["price"] = c1.number_input("Preço de venda por unidade", min_value=0.0, step=0.01, value=float(econ.get("price", 0.0)), key=f"price_{iid}")
-        econ["tax_rate"] = c2.number_input("Tributos sobre receita (% do Simples Nacional ou equivalente)", min_value=0.0, max_value=1.0, step=0.005, value=float(econ.get("tax_rate", 0.06)), format="%.4f", key=f"tax_{iid}")
+
+        previous_anexo = econ.get("simples_anexo")
+        anexo = c2.selectbox(
+            "Anexo do Simples Nacional",
+            options=list(anexo_min_rate.keys()),
+            index=list(anexo_min_rate.keys()).index(previous_anexo) if previous_anexo in anexo_min_rate else 2,
+            key=f"anexo_{iid}",
+        )
+        econ["simples_anexo"] = anexo
+        if previous_anexo != anexo:
+            econ["tax_rate"] = anexo_min_rate[anexo]
+            st.session_state[f"tax_{iid}"] = econ["tax_rate"]
+
+        st.info(
+            "No Simples Nacional, a alíquota efetiva tende a aumentar conforme sua receita bruta acumulada (RBT12). "
+            "Neste app, por enquanto usamos a alíquota mínima do Anexo como ponto de partida. "
+            "O ajuste da alíquota ao longo do tempo será feito na Etapa 4, com base na projeção de volume/receita."
+        )
+
+        econ["tax_rate"] = st.number_input(
+            "Tributos sobre receita (% do Simples Nacional ou equivalente)",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.005,
+            value=float(econ.get("tax_rate", anexo_min_rate[econ["simples_anexo"]])),
+            format="%.4f",
+            key=f"tax_{iid}",
+        )
 
         st.markdown("**Custos Variáveis**")
         cdf = _editable_variable_table(pd.DataFrame(econ.get("variable_costs", [])), key=f"vcost_{iid}")
@@ -479,6 +559,7 @@ def step2() -> None:
     st.markdown("### Resumo por item")
     st.dataframe(pd.DataFrame(summary), use_container_width=True)
     st.info("MC consolidada depende do mix de vendas; será calculada na Etapa 4 com base nas quantidades projetadas.")
+    render_next(2)
 
 
 def _fixed_table(df: pd.DataFrame, key: str, with_class: bool = False) -> pd.DataFrame:
@@ -496,8 +577,12 @@ def _fixed_table(df: pd.DataFrame, key: str, with_class: bool = False) -> pd.Dat
 
 def step3() -> None:
     header(3, "Agora vamos registrar os gastos fixos: aqueles que existem mesmo se você vender pouco (ou nada). Isso é a ‘estrutura fixa’ do negócio e é fundamental para calcular ponto de equilíbrio.")
-    with st.expander("Ajuda curta"):
-        st.write("Custos fixos estão ligados à entrega/produção (ex.: equipe técnica). Despesas fixas estão ligadas à operação e vendas (ex.: administrativo, marketing recorrente).")
+    with st.expander("Instruções"):
+        st.write(
+            "- Fixos são gastos que existem mesmo com poucas vendas (aluguel, salários, ferramentas, contratos recorrentes).\n\n"
+            "- Custos fixos se relacionam à entrega/produção; despesas fixas à operação e vendas.\n\n"
+            "- O prazo de pagamento muda o caixa: se você paga depois, o caixa ‘respira’ mais no começo."
+        )
 
     st.markdown("### Custos Fixos")
     cdf = _fixed_table(pd.DataFrame(st.session_state["fixed_costs"]), key="fixed_costs_table")
@@ -508,6 +593,7 @@ def step3() -> None:
     edf = _fixed_table(pd.DataFrame(st.session_state["fixed_expenses"]), key="fixed_expenses_table", with_class=True)
     st.session_state["fixed_expenses"] = edf.to_dict("records")
     st.caption(f"Total de despesas fixas mensais: R$ {edf.get('monthly_value', pd.Series(dtype=float)).fillna(0).sum():,.2f}")
+    render_next(3)
 
 
 def regenerate_quantities(scenario: Dict[str, Any], item_id: str) -> None:
@@ -524,12 +610,18 @@ def regenerate_quantities(scenario: Dict[str, Any], item_id: str) -> None:
 
 def step4() -> None:
     header(4, "Aqui você projeta quantas unidades vai vender ao longo do tempo. Com isso, o app calcula o ponto de equilíbrio e mostra o efeito da alavancagem operacional: como a estrutura fixa pode amplificar ganhos (ou perdas) conforme o volume muda.")
-    with st.expander("Ajuda curta"):
-        st.write("- Ponto de equilíbrio é o nível de vendas em que o resultado operacional fica zero.\n\n- Alavancagem operacional aumenta quando há muitos custos fixos: pequenas variações de vendas podem gerar grandes variações no resultado.")
+    with st.expander("Instruções"):
+        st.write(
+            "- Projeção de volume é quantas unidades você espera vender por mês.\n\n"
+            "- Cenários servem para comparar hipóteses: base, otimista, conservador.\n\n"
+            "- Ponto de equilíbrio é o nível de vendas em que o resultado operacional fica zero.\n\n"
+            "- A alavancagem operacional aumenta quando seus fixos são altos: o resultado melhora (ou piora) mais rápido com o volume."
+        )
 
     ensure_item_consistency()
     if not st.session_state["items"]:
         st.warning("Cadastre ao menos 1 item na Etapa 1.")
+        render_next(4)
         return
 
     scenarios = st.session_state["scenarios"]
@@ -602,6 +694,7 @@ def step4() -> None:
         st.dataframe(gao_df, use_container_width=True)
     else:
         st.info("GAO não é informativa quando o resultado operacional (EBIT) está próximo de zero.")
+    render_next(4)
 
 
 def step5() -> None:
@@ -618,6 +711,7 @@ def step5() -> None:
     }
     edited = st.data_editor(df, key="investments_table", num_rows="dynamic", use_container_width=True, hide_index=True, column_config=cfg)
     st.session_state["investments"] = edited.to_dict("records")
+    render_next(5)
 
 
 def step6() -> None:
@@ -631,12 +725,18 @@ def step6() -> None:
         f"Necessidade de caixa (pico de déficit operacional): R$ {abs(min(0, res['valley'])):,.2f} no mês {res['valley_month']}."
     )
     st.caption("Definição: o menor valor do caixa acumulado ao longo do período; indica quanto seria necessário financiar para atravessar o período mais negativo.")
+    render_next(6)
 
 
 def step7() -> None:
     header(7, "Com o fluxo de caixa pronto, o app calcula indicadores clássicos para avaliar se o projeto compensa. Se você for iniciante, foque primeiro em VPL (Valor Presente Líquido) e Payback.")
-    with st.expander("Ajuda curta"):
-        st.write("- VPL > 0 sugere que o projeto cria valor acima da taxa mínima desejada.\n\n- Payback mostra em quanto tempo o caixa acumulado deixa de ser negativo.")
+    with st.expander("Instruções"):
+        st.write(
+            "- Taxa mínima desejada é o retorno que você exige para considerar o projeto atrativo.\n\n"
+            "- VPL (Valor Presente Líquido) compara o projeto com essa taxa: VPL > 0 indica que o projeto supera a taxa mínima.\n\n"
+            "- Payback mostra quando o caixa acumulado deixa de ser negativo.\n\n"
+            "- TIR (Taxa Interna de Retorno) e TIRM (Taxa Interna de Retorno Modificada) são úteis, mas podem confundir no início — use como complemento."
+        )
 
     sid = st.session_state["current_scenario_id"]
     c1, c2 = st.columns(2)
@@ -654,6 +754,7 @@ def step7() -> None:
     with st.expander("Avançado"):
         st.metric("TIR (Taxa Interna de Retorno)", "N/A" if pd.isna(v["tir"]) else f"{v['tir']:.2%}")
         st.metric("TIRM (Taxa Interna de Retorno Modificada)", "N/A" if pd.isna(v["tirm"]) else f"{v['tirm']:.2%}")
+    render_next(7)
 
 
 def step8() -> None:
@@ -669,6 +770,10 @@ def step8() -> None:
 
     st.markdown("### DRE (Demonstração do Resultado do Exercício) — Anual")
     st.dataframe(res["dre_annual"], use_container_width=True)
+
+    if st.button("Voltar para a Etapa 1", key="back_to_step_1"):
+        st.session_state["step"] = 1
+        st.rerun()
 
 
 def main() -> None:
