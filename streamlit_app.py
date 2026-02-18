@@ -379,7 +379,12 @@ def step1() -> None:
 
     b = st.session_state["business"]
     b["name"] = st.text_input("Nome do negócio (opcional)", value=b.get("name", ""), key="business_name")
-    b["start_period"] = st.date_input("Data inicial do planejamento", value=b.get("start_period"), key="business_start")
+    b["start_period"] = st.date_input(
+        "Data inicial do planejamento",
+        value=b.get("start_period"),
+        key="business_start",
+        format="DD/MM/YYYY",
+    )
 
     with st.expander("Instruções"):
         st.write(
@@ -514,62 +519,6 @@ def step2() -> None:
         econ["simples_anexo"] = legacy_anexo_aliases.get(raw_anexo, raw_anexo)
         if econ["simples_anexo"] not in anexo_min_rate:
             econ["simples_anexo"] = "Anexo III (Serviços)"
-        st.markdown(f"### {item['name']} ({item['unit']})")
-
-        c1, c2 = st.columns(2)
-        econ["price"] = c1.number_input("Preço de venda por unidade", min_value=0.0, step=0.01, value=float(econ.get("price", 0.0)), key=f"price_{iid}")
-
-        previous_anexo = econ.get("simples_anexo")
-        anexo = c2.selectbox(
-            "Anexo do Simples Nacional",
-            options=list(anexo_min_rate.keys()),
-            index=list(anexo_min_rate.keys()).index(previous_anexo) if previous_anexo in anexo_min_rate else 2,
-            key=f"anexo_{iid}",
-        )
-        econ["simples_anexo"] = anexo
-        if previous_anexo != anexo:
-            econ["tax_rate"] = anexo_min_rate[anexo]
-            st.session_state.pop(f"tax_{iid}", None)
-
-        st.info(
-            "No Simples Nacional, a alíquota efetiva tende a aumentar conforme sua receita bruta acumulada (RBT12). "
-            "Neste app, por enquanto usamos a alíquota mínima do Anexo como ponto de partida. "
-            "O ajuste da alíquota ao longo do tempo será feito na Etapa 4, com base na projeção de volume/receita."
-        )
-
-        econ["tax_rate"] = st.number_input(
-            "Tributos sobre receita (% do Simples Nacional ou equivalente)",
-            min_value=0.0,
-            max_value=1.0,
-            step=0.005,
-            value=float(econ.get("tax_rate", anexo_min_rate[econ["simples_anexo"]])),
-            format="%.4f",
-            key=f"tax_{iid}",
-        )
-
-        st.markdown("**Custos Variáveis**")
-        st.caption("Use Tab ou Enter para ir para a próxima célula. Ao concluir, clique em 'Salvar'.")
-        with st.form(key=f"form_vcost_{iid}", enter_to_submit=False, clear_on_submit=False):
-            cdf = _editable_variable_table(pd.DataFrame(econ.get("variable_costs", [])), key=f"vcost_{iid}")
-            save_costs = st.form_submit_button("Salvar custos variáveis")
-        if save_costs:
-            econ["variable_costs"] = cdf.drop(columns=["total"]).to_dict("records")
-            st.success("Custos variáveis salvos.")
-        st.caption(f"Total de custos variáveis unitários: R$ {cdf['total'].sum():,.2f}")
-
-        st.markdown("**Despesas Variáveis**")
-        st.caption("Use Tab ou Enter para ir para a próxima célula. Ao concluir, clique em 'Salvar'.")
-        with st.form(key=f"form_vexp_{iid}", enter_to_submit=False, clear_on_submit=False):
-            edf = _editable_variable_table(pd.DataFrame(econ.get("variable_expenses", [])), key=f"vexp_{iid}", expense=True)
-            save_expenses = st.form_submit_button("Salvar despesas variáveis")
-        if save_expenses:
-            econ["variable_expenses"] = edf.drop(columns=["total"]).to_dict("records")
-            st.success("Despesas variáveis salvas.")
-        st.caption(f"Total de despesas variáveis unitárias: R$ {edf['total'].sum():,.2f}")
-
-        p1, p2 = st.columns(2)
-        econ["receive_days"] = p1.number_input("Prazo médio de recebimento (dias)", min_value=0, step=1, value=int(econ.get("receive_days", 0)), key=f"recv_{iid}")
-        econ["pay_days"] = p2.number_input("Prazo médio de pagamento a fornecedores (dias)", min_value=0, step=1, value=int(econ.get("pay_days", 0)), key=f"pay_{iid}")
 
         m = unit_metrics(item, st.session_state["scenarios"][st.session_state["current_scenario_id"]])
         summary.append(
@@ -584,9 +533,74 @@ def step2() -> None:
             }
         )
 
-    st.markdown("### Resumo por item")
+    st.markdown("### Análise por Item")
+    st.info("Preencha os campos de cada item abaixo para atualizar a análise automaticamente.")
     st.dataframe(pd.DataFrame(summary), use_container_width=True)
     st.info("MC consolidada depende do mix de vendas; será calculada na Etapa 4 com base nas quantidades projetadas.")
+
+    for item in st.session_state["items"]:
+        iid = item["id"]
+        econ = st.session_state["unit_economics"][iid]
+        raw_anexo = str(econ.get("simples_anexo", "")).strip()
+        econ["simples_anexo"] = legacy_anexo_aliases.get(raw_anexo, raw_anexo)
+        if econ["simples_anexo"] not in anexo_min_rate:
+            econ["simples_anexo"] = "Anexo III (Serviços)"
+        with st.expander(f"{item['name']} ({item['unit']})", expanded=False):
+            c1, c2 = st.columns(2)
+            econ["price"] = c1.number_input("Preço de venda por unidade", min_value=0.0, step=0.01, value=float(econ.get("price", 0.0)), key=f"price_{iid}")
+
+            previous_anexo = econ.get("simples_anexo")
+            anexo = c2.selectbox(
+                "Anexo do Simples Nacional",
+                options=list(anexo_min_rate.keys()),
+                index=list(anexo_min_rate.keys()).index(previous_anexo) if previous_anexo in anexo_min_rate else 2,
+                key=f"anexo_{iid}",
+            )
+            econ["simples_anexo"] = anexo
+            if previous_anexo != anexo:
+                econ["tax_rate"] = anexo_min_rate[anexo]
+                st.session_state.pop(f"tax_{iid}", None)
+
+            st.info(
+                "No Simples Nacional, a alíquota efetiva tende a aumentar conforme sua receita bruta acumulada (RBT12). "
+                "Neste app, por enquanto usamos a alíquota mínima do Anexo como ponto de partida. "
+                "O ajuste da alíquota ao longo do tempo será feito na Etapa 4, com base na projeção de volume/receita."
+            )
+
+            econ["tax_rate"] = st.number_input(
+                "Tributos sobre receita (% do Simples Nacional)",
+                min_value=0.0,
+                max_value=1.0,
+                step=0.005,
+                value=float(econ.get("tax_rate", anexo_min_rate[econ["simples_anexo"]])),
+                format="%.4f",
+                key=f"tax_{iid}",
+            )
+
+            st.markdown("**Custos Variáveis**")
+            st.caption("Use Tab ou Enter para ir para a próxima célula. Ao concluir, clique em 'Salvar'.")
+            with st.form(key=f"form_vcost_{iid}", enter_to_submit=False, clear_on_submit=False):
+                cdf = _editable_variable_table(pd.DataFrame(econ.get("variable_costs", [])), key=f"vcost_{iid}")
+                save_costs = st.form_submit_button("Salvar custos variáveis")
+            if save_costs:
+                econ["variable_costs"] = cdf.drop(columns=["total"]).to_dict("records")
+                st.success("Custos variáveis salvos.")
+            st.caption(f"Total de custos variáveis unitários: R$ {cdf['total'].sum():,.2f}")
+
+            st.markdown("**Despesas Variáveis**")
+            st.caption("Use Tab ou Enter para ir para a próxima célula. Ao concluir, clique em 'Salvar'.")
+            with st.form(key=f"form_vexp_{iid}", enter_to_submit=False, clear_on_submit=False):
+                edf = _editable_variable_table(pd.DataFrame(econ.get("variable_expenses", [])), key=f"vexp_{iid}", expense=True)
+                save_expenses = st.form_submit_button("Salvar despesas variáveis")
+            if save_expenses:
+                econ["variable_expenses"] = edf.drop(columns=["total"]).to_dict("records")
+                st.success("Despesas variáveis salvas.")
+            st.caption(f"Total de despesas variáveis unitárias: R$ {edf['total'].sum():,.2f}")
+
+            p1, p2 = st.columns(2)
+            econ["receive_days"] = p1.number_input("Prazo médio de recebimento (dias)", min_value=0, step=1, value=int(econ.get("receive_days", 0)), key=f"recv_{iid}")
+            econ["pay_days"] = p2.number_input("Prazo médio de pagamento a fornecedores (dias)", min_value=0, step=1, value=int(econ.get("pay_days", 0)), key=f"pay_{iid}")
+
     render_next(2)
 
 
