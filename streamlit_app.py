@@ -8,9 +8,9 @@ import streamlit as st
 
 
 STEP_TITLES = [
-    "Configuração mínima",
+    "Produtos e Serviços (configuração mínima)",
     "Economia unitária, variáveis e prazos",
-    "Fixos e prazos de pagamento",
+    "Gastos fixos e prazos de pagamento",
     "Projeção de volume e ponto de equilíbrio",
     "Investimentos",
     "Fluxo de caixa mensal e necessidade de caixa",
@@ -769,6 +769,7 @@ def _render_break_even_summary(sid: str, scenario: Dict[str, Any]) -> None:
                     "Produto/Serviço": item["name"],
                     "Unidade": item["unit"],
                     "Preço unitário": price_eff,
+                    "MC unitária": unit_metrics(item, scenario)["mc_u"],
                     "Receita projetada": revenue_total,
                     "Quantidade projetada": qty_total,
                 }
@@ -797,6 +798,7 @@ def _render_break_even_summary(sid: str, scenario: Dict[str, Any]) -> None:
             hide_index=True,
             column_config={
                 "Preço unitário": st.column_config.NumberColumn(format="R$ %.2f"),
+                "MC unitária": st.column_config.NumberColumn(format="R$ %.2f"),
                 "Receita projetada": st.column_config.NumberColumn(format="R$ %.2f"),
                 "Quantidade projetada": st.column_config.NumberColumn(format="%.2f"),
                 "Proporção da receita": st.column_config.ProgressColumn(format="%.2f%%", min_value=0.0, max_value=1.0),
@@ -1139,7 +1141,7 @@ def step9() -> None:
             "name": f"Cenário Alternativo {len(alt_scenarios)+1}",
             "selected_changes": [],
             "qty_delta_pct": 0.0,
-            "mix_changes": {item["id"]: 0.0 for item in st.session_state["items"]},
+            "mix_shares_qty": {},
             "price_pct": {item["id"]: 0.0 for item in st.session_state["items"]},
             "var_pct": {item["id"]: 0.0 for item in st.session_state["items"]},
             "results": None,
@@ -1152,6 +1154,53 @@ def step9() -> None:
         "Variação percentual no preço dos produtos",
         "Variação percentual nos custos e despesas variáveis",
     ]
+
+    def current_mix_shares_qty(scenario_data: Dict[str, Any]) -> Dict[str, float]:
+        item_ids = [item["id"] for item in st.session_state["items"]]
+        qty_totals = {
+            iid: float(np.sum(np.array(scenario_data.get("quantities", {}).get(iid, []), dtype=float)))
+            for iid in item_ids
+        }
+        total_qty = float(sum(qty_totals.values()))
+        if total_qty > 0:
+            return {iid: (qty_totals[iid] / total_qty) * 100 for iid in item_ids}
+        equal_share = 100.0 / len(item_ids) if item_ids else 0.0
+        return {iid: equal_share for iid in item_ids}
+
+    def redistribute_quantities_by_mix(
+        qty_by_item: Dict[str, np.ndarray],
+        shares_decimal: Dict[str, float],
+        item_ids: List[str],
+    ) -> Dict[str, np.ndarray]:
+        if not item_ids:
+            return qty_by_item
+        horizon_len = len(qty_by_item[item_ids[0]])
+        adjusted_qty = {iid: np.zeros(horizon_len, dtype=float) for iid in item_ids}
+
+        for m_idx in range(horizon_len):
+            total_m = float(sum(float(qty_by_item[iid][m_idx]) for iid in item_ids))
+            total_target = int(math.ceil(max(0.0, total_m)))
+            running_sum = 0
+
+            for iid in item_ids[:-1]:
+                qty = int(math.ceil(max(0.0, total_m * shares_decimal.get(iid, 0.0))))
+                adjusted_qty[iid][m_idx] = float(qty)
+                running_sum += qty
+
+            last_iid = item_ids[-1]
+            last_qty = total_target - running_sum
+            if last_qty < 0:
+                deficit = -last_qty
+                for iid in sorted(item_ids[:-1], key=lambda x: adjusted_qty[x][m_idx], reverse=True):
+                    if deficit <= 0:
+                        break
+                    reducible = int(min(adjusted_qty[iid][m_idx], deficit))
+                    adjusted_qty[iid][m_idx] -= reducible
+                    deficit -= reducible
+                last_qty = 0
+            adjusted_qty[last_iid][m_idx] = float(max(0, last_qty))
+
+        return adjusted_qty
 
     for idx, alt in enumerate(alt_scenarios):
         with st.container(border=True):
@@ -1174,17 +1223,65 @@ def step9() -> None:
                     key=f"sens_qty_delta_{idx}",
                 )
 
+            mix_invalid = False
             if options[1] in selected and len(st.session_state["items"]) > 1:
-                st.caption("Informe o ajuste percentual da participação de cada item no mix de vendas.")
+                st.markdown("### Alteração na proporção de vendas (mix por quantidade)")
+                current_shares = current_mix_shares_qty(base_scenario)
+                mix_store = alt.setdefault("mix_shares_qty", {})
                 for item in st.session_state["items"]:
                     iid = item["id"]
-                    alt.setdefault("mix_changes", {}).setdefault(iid, 0.0)
-                    alt["mix_changes"][iid] = st.number_input(
-                        f"{item['name']} - alteração na proporção (%)",
-                        value=float(alt["mix_changes"].get(iid, 0.0)),
-                        step=1.0,
-                        key=f"sens_mix_{idx}_{iid}",
+                    mix_store.setdefault(iid, float(current_shares.get(iid, 0.0)))
+
+                item_ids = [item["id"] for item in st.session_state["items"]]
+                editable_ids = item_ids[:-1]
+                last_id = item_ids[-1]
+                adjusted_shares: Dict[str, float] = {}
+                editable_sum = 0.0
+
+                for iid in editable_ids:
+                    item_name = next(item["name"] for item in st.session_state["items"] if item["id"] == iid)
+                    value = st.number_input(
+                        f"{item_name} - Mix ajustado (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=float(mix_store.get(iid, current_shares.get(iid, 0.0))),
+                        step=0.5,
+                        key=f"sens_mix_share_{idx}_{iid}",
                     )
+                    adjusted_shares[iid] = float(value)
+                    editable_sum += float(value)
+
+                last_share = max(0.0, 100.0 - editable_sum)
+                adjusted_shares[last_id] = last_share
+                last_name = next(item["name"] for item in st.session_state["items"] if item["id"] == last_id)
+                st.metric(f"{last_name} - Mix ajustado (%)", f"{last_share:.2f}%", "Calculado automaticamente para fechar 100%")
+
+                if editable_sum > 100.0:
+                    st.error("A soma do mix não pode ultrapassar 100%. Ajuste os percentuais.")
+                    mix_invalid = True
+
+                for iid, pct in adjusted_shares.items():
+                    mix_store[iid] = float(pct)
+
+                mix_table = []
+                for item in st.session_state["items"]:
+                    iid = item["id"]
+                    mix_table.append(
+                        {
+                            "Produto": item["name"],
+                            "Mix atual (%)": float(current_shares.get(iid, 0.0)),
+                            "Mix ajustado (%)": float(mix_store.get(iid, 0.0)),
+                        }
+                    )
+                st.dataframe(
+                    pd.DataFrame(mix_table),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Mix atual (%)": st.column_config.NumberColumn(format="%.2f"),
+                        "Mix ajustado (%)": st.column_config.NumberColumn(format="%.2f"),
+                    },
+                )
             elif options[1] in selected:
                 st.info("A alteração de proporção entre produtos exige ao menos 2 itens cadastrados.")
 
@@ -1210,9 +1307,11 @@ def step9() -> None:
                         key=f"sens_var_{idx}_{iid}",
                     )
 
-            if st.button("Gerar resultados do cenário", key=f"gen_sensitivity_{idx}"):
+            if st.button("Gerar resultados do cenário", key=f"gen_sensitivity_{idx}", disabled=mix_invalid):
                 temp_scenario = deepcopy(base_scenario)
                 horizon = int(temp_scenario.get("horizon_months", 12) or 12)
+                item_ids = [item["id"] for item in st.session_state["items"]]
+                qty_by_item: Dict[str, np.ndarray] = {}
 
                 for item in st.session_state["items"]:
                     iid = item["id"]
@@ -1220,16 +1319,21 @@ def step9() -> None:
                     if options[0] in selected:
                         delta = float(alt.get("qty_delta_pct", 0.0)) / 100
                         base_qty = base_qty * max(0.0, (1 + delta))
-
-                    if options[1] in selected and len(st.session_state["items"]) > 1:
-                        mix = float(alt.get("mix_changes", {}).get(iid, 0.0)) / 100
-                        base_qty = base_qty * max(0.0, (1 + mix))
-
-                    temp_scenario["quantities"][iid] = base_qty.tolist()
+                    qty_by_item[iid] = base_qty
 
                     if options[2] in selected:
                         base_price = float(temp_scenario["overrides"]["price"].get(iid, st.session_state["unit_economics"][iid].get("price", 0.0)) or 0.0)
                         temp_scenario["overrides"]["price"][iid] = base_price * (1 + float(alt.get("price_pct", {}).get(iid, 0.0)) / 100)
+
+                if options[1] in selected and len(item_ids) > 1:
+                    mix_store = alt.get("mix_shares_qty", {})
+                    total_mix = sum(max(0.0, float(mix_store.get(iid, 0.0))) for iid in item_ids)
+                    if total_mix > 0 and total_mix <= 100.0:
+                        shares_decimal = {iid: max(0.0, float(mix_store.get(iid, 0.0))) / total_mix for iid in item_ids}
+                        qty_by_item = redistribute_quantities_by_mix(qty_by_item, shares_decimal, item_ids)
+
+                for iid in item_ids:
+                    temp_scenario["quantities"][iid] = qty_by_item[iid].tolist()
 
                 modified_unit_econ = deepcopy(st.session_state["unit_economics"])
                 if options[3] in selected:
@@ -1257,16 +1361,24 @@ def step9() -> None:
                     st.session_state["unit_economics"] = original_econ
 
                 mix_rows = []
+                qty_totals: Dict[str, float] = {
+                    item["id"]: float(np.sum(np.array(temp_scenario.get("quantities", {}).get(item["id"], []), dtype=float)))
+                    for item in st.session_state["items"]
+                }
+                qty_total_all = float(sum(qty_totals.values()))
+                pe_revenue_total = float(result["break_even_revenue"]) if pd.notna(result["break_even_revenue"]) else np.nan
                 for item in st.session_state["items"]:
                     iid = item["id"]
                     metrics = unit_metrics(item, temp_scenario)
-                    qty_total = float(np.sum(temp_scenario.get("quantities", {}).get(iid, [])))
+                    qty_total = qty_totals[iid]
+                    mix_qty = (qty_total / qty_total_all) if qty_total_all > 0 else 0.0
+                    pe_revenue_i = (pe_revenue_total * mix_qty) if pd.notna(pe_revenue_total) else np.nan
                     mix_rows.append(
                         {
                             "Produto/Serviço": item["name"],
-                            "MC por produto": metrics["mc_u"],
-                            "PE em quantidade": (result["break_even_revenue"] / metrics["price"]) if metrics["price"] > 0 and pd.notna(result["break_even_revenue"]) else np.nan,
-                            "PE em receita": result["break_even_revenue"],
+                            "Mix (%)": mix_qty,
+                            "PE em Receita (R$)": pe_revenue_i,
+                            "PE em Quantidade (unid)": (pe_revenue_i / metrics["price"]) if metrics["price"] > 0 and pd.notna(pe_revenue_i) else np.nan,
                             "Quantidade projetada": qty_total,
                         }
                     )
