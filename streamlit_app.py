@@ -9,7 +9,7 @@ import streamlit as st
 
 STEP_TITLES = [
     "Produtos e Serviços (configuração mínima)",
-    "Economia unitária, variáveis e prazos",
+    "Economia unitária, gastos variáveis e prazos",
     "Gastos fixos e prazos de pagamento",
     "Projeção de volume e ponto de equilíbrio",
     "Investimentos",
@@ -383,13 +383,26 @@ def calc_viability(scenario_id: str, discount_m: float, reinvest_m: float) -> Di
 
 def render_nav() -> None:
     with st.sidebar:
+        st.markdown(
+            """
+            <style>
+            section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+                justify-content: flex-start;
+                text-align: left;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         st.title("Planejamento Financeiro")
         st.progress(st.session_state["step"] / len(STEP_TITLES))
         st.caption(f"Etapa {st.session_state['step']} de {len(STEP_TITLES)}")
         for idx, title in enumerate(STEP_TITLES, start=1):
             mark = "➡️" if idx == st.session_state["step"] else "•"
-            if st.button(f"{mark} {idx}. {title}", key=f"nav_{idx}", use_container_width=True):
+            button_type = "primary" if idx == st.session_state["step"] else "secondary"
+            if st.button(f"{mark} {idx}. {title}", key=f"nav_{idx}", use_container_width=True, type=button_type):
                 st.session_state["step"] = idx
+                st.rerun()
 
 
 def header(step: int, text: str) -> None:
