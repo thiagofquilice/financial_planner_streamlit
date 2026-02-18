@@ -110,6 +110,42 @@ def annual_rate_percent_to_monthly_decimal(annual_percent: float) -> float:
     return (1 + annual_decimal) ** (1 / 12) - 1
 
 
+def compute_irr(flows: np.ndarray, max_iter: int = 200, tol: float = 1e-7) -> float:
+    flows = np.asarray(flows, dtype=float)
+    if flows.size < 2 or not np.any(flows > 0) or not np.any(flows < 0):
+        return np.nan
+
+    def npv(rate: float) -> float:
+        periods = np.arange(flows.size)
+        return float(np.sum(flows / ((1 + rate) ** periods)))
+
+    low = -0.9999
+    high = 10.0
+    npv_low = npv(low)
+    npv_high = npv(high)
+    expand_count = 0
+    while npv_low * npv_high > 0 and expand_count < 12:
+        high *= 2
+        npv_high = npv(high)
+        expand_count += 1
+
+    if npv_low * npv_high > 0:
+        return np.nan
+
+    for _ in range(max_iter):
+        mid = (low + high) / 2
+        npv_mid = npv(mid)
+        if abs(npv_mid) < tol:
+            return mid
+        if npv_low * npv_mid <= 0:
+            high = mid
+            npv_high = npv_mid
+        else:
+            low = mid
+            npv_low = npv_mid
+    return (low + high) / 2
+
+
 def unit_metrics(item: Dict[str, Any], scenario: Dict[str, Any]) -> Dict[str, float]:
     iid = item["id"]
     econ = st.session_state["unit_economics"].get(iid, default_unit_econ(iid))
@@ -310,10 +346,7 @@ def calc_viability(scenario_id: str, discount_m: float, reinvest_m: float) -> Di
 
     vpl = float(np.sum(flows / ((1 + discount_m) ** periods)))
 
-    try:
-        tir = float(np.irr(flows))
-    except Exception:
-        tir = np.nan
+    tir = compute_irr(flows)
 
     pos = flows[flows > 0]
     neg = flows[flows < 0]
@@ -974,16 +1007,65 @@ def step7() -> None:
     st.markdown("### Margem de contribuição e ponto de equilíbrio")
     dre = res["dre_monthly"]
     mc_total = float(dre["Margem de contribuição"].sum()) if not dre.empty else 0.0
+    fixed_total = float(
+        pd.DataFrame(st.session_state.get("fixed_costs", [])).get("monthly_value", pd.Series(dtype=float)).fillna(0).sum()
+    ) + float(
+        pd.DataFrame(st.session_state.get("fixed_expenses", [])).get("monthly_value", pd.Series(dtype=float)).fillna(0).sum()
+    )
+
+    m1, m2 = st.columns(2)
+    m1.metric("MC total", f"R$ {mc_total:,.2f}")
+    m2.metric("Ponto de equilíbrio (receita)", "N/A" if pd.isna(res["break_even_revenue"]) else f"R$ {res['break_even_revenue']:,.2f}")
+
+    mix_rows = []
     qty_total = 0.0
+    weighted_mc_unit = 0.0
+    scenario = st.session_state["scenarios"][sid]
     for item in st.session_state["items"]:
         iid = item["id"]
-        qty_total += float(np.sum(st.session_state["scenarios"][sid].get("quantities", {}).get(iid, [])))
-    mc_unitaria_media = mc_total / qty_total if qty_total > 0 else np.nan
+        mc_unit = unit_metrics(item, scenario)["mc_u"]
+        qty_item = float(np.sum(scenario.get("quantities", {}).get(iid, [])))
+        qty_total += qty_item
+        mix_rows.append(
+            {
+                "Produto/Serviço": item["name"],
+                "Unidade": item["unit"],
+                "MC unitária": mc_unit,
+                "Quantidade total projetada": qty_item,
+            }
+        )
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric("MC total", f"R$ {mc_total:,.2f}")
-    m2.metric("MC unitária média", "N/A" if pd.isna(mc_unitaria_media) else f"R$ {mc_unitaria_media:,.2f}")
-    m3.metric("Ponto de equilíbrio (receita)", "N/A" if pd.isna(res["break_even_revenue"]) else f"R$ {res['break_even_revenue']:,.2f}")
+    for row in mix_rows:
+        mix_qty = (row["Quantidade total projetada"] / qty_total) if qty_total > 0 else np.nan
+        row["Proporção do mix (quantidade)"] = mix_qty
+        weighted_mc_unit += row["MC unitária"] * (mix_qty if pd.notna(mix_qty) else 0.0)
+
+    be_total_qty = (fixed_total / weighted_mc_unit) if weighted_mc_unit > 0 else np.nan
+    for row in mix_rows:
+        if pd.notna(be_total_qty) and pd.notna(row["Proporção do mix (quantidade)"]):
+            row["PE quantidade (mensal)"] = be_total_qty * row["Proporção do mix (quantidade)"]
+            row["Proporção no PE (quantidade)"] = row["PE quantidade (mensal)"] / be_total_qty if be_total_qty > 0 else np.nan
+        else:
+            row["PE quantidade (mensal)"] = np.nan
+            row["Proporção no PE (quantidade)"] = np.nan
+
+    if mix_rows:
+        st.dataframe(
+            pd.DataFrame(mix_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "MC unitária": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Quantidade total projetada": st.column_config.NumberColumn(format="%.2f"),
+                "Proporção do mix (quantidade)": st.column_config.ProgressColumn(format="%.2f%%", min_value=0.0, max_value=1.0),
+                "PE quantidade (mensal)": st.column_config.NumberColumn(format="%.2f"),
+                "Proporção no PE (quantidade)": st.column_config.ProgressColumn(format="%.2f%%", min_value=0.0, max_value=1.0),
+            },
+        )
+        st.caption(
+            "O ponto de equilíbrio em quantidade foi distribuído conforme o mix projetado de quantidades. "
+            "Assim, a proporção no PE mostra quanto cada produto representa do total necessário para cobrir os fixos."
+        )
 
     st.markdown("### Quadros de apoio às análises")
     if st.checkbox("Exibir quadro base de VPL/TIR/TIRM/Payback", key="show_viability_base_table"):
