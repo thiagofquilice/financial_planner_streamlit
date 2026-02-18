@@ -12,7 +12,7 @@ STEP_TITLES = [
     "Economia unitária, variáveis e prazos",
     "Fixos e prazos de pagamento",
     "Projeção de volume e ponto de equilíbrio",
-    "Investimentos (CAPEX)",
+    "Investimentos",
     "Fluxo de caixa mensal e necessidade de caixa",
     "Viabilidade: VPL, TIR, TIRM, Payback",
     "Demonstrativos (Competência e Caixa)",
@@ -65,7 +65,7 @@ def init_state() -> None:
         "fixed_expenses",
         [{"item": "", "classification": "Operacional", "monthly_value": 0.0, "pay_days": 0, "obs": ""}],
     )
-    st.session_state.setdefault("investments", [{"item": "", "category": "CAPEX", "month": 1, "value": 0.0, "payment": "À vista", "installments": 1}])
+    st.session_state.setdefault("investments", [{"item": "", "category": "Investimento", "month": 0, "value": 0.0, "payment": "À vista", "installments": 1}])
 
     if "scenarios" not in st.session_state:
         st.session_state["scenarios"] = {"base": default_scenario("Cenário 1 — Base", [])}
@@ -144,6 +144,7 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
     scenario = st.session_state["scenarios"][scenario_id]
     horizon = int(scenario.get("horizon_months", 12) or 12)
     months = np.arange(1, horizon + 1)
+    cash_months = np.arange(0, horizon + 1)
     items = st.session_state["items"]
 
     fixed_cost_df = pd.DataFrame(st.session_state.get("fixed_costs", []))
@@ -152,8 +153,8 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
         fixed_exp_df.get("monthly_value", pd.Series(dtype=float)).fillna(0).sum()
     )
 
-    operational_cash = np.zeros(horizon)
-    investment_cash = np.zeros(horizon)
+    operational_cash = np.zeros(horizon + 1)
+    investment_cash = np.zeros(horizon + 1)
 
     dre_rows = []
     monthly_rows = []
@@ -186,26 +187,26 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
 
             recv_days = int(scenario["overrides"]["receive_days"].get(iid, st.session_state["unit_economics"][iid].get("receive_days", 0)) or 0)
             pay_days = int(scenario["overrides"]["pay_days"].get(iid, st.session_state["unit_economics"][iid].get("pay_days", 0)) or 0)
-            recv_month = m_idx + payment_shift_month(recv_days)
-            pay_month = m_idx + payment_shift_month(pay_days)
-            if recv_month < horizon:
+            recv_month = int(month) + payment_shift_month(recv_days)
+            pay_month = int(month) + payment_shift_month(pay_days)
+            if recv_month <= horizon:
                 received += gross_i
                 operational_cash[recv_month] += gross_i
-            if pay_month < horizon:
+            if pay_month <= horizon:
                 paid_var += (var_cost_i + var_exp_i)
                 operational_cash[pay_month] -= var_cost_i + var_exp_i
 
         # tributo pago no mesmo mês da competência
-        operational_cash[m_idx] -= taxes
+        operational_cash[int(month)] -= taxes
 
         # fixos com prazo
         for _, row in fixed_cost_df.iterrows():
-            pm = m_idx + payment_shift_month(int(row.get("pay_days", 0) or 0))
-            if pm < horizon:
+            pm = int(month) + payment_shift_month(int(row.get("pay_days", 0) or 0))
+            if pm <= horizon:
                 operational_cash[pm] -= float(row.get("monthly_value", 0.0) or 0.0)
         for _, row in fixed_exp_df.iterrows():
-            pm = m_idx + payment_shift_month(int(row.get("pay_days", 0) or 0))
-            if pm < horizon:
+            pm = int(month) + payment_shift_month(int(row.get("pay_days", 0) or 0))
+            if pm <= horizon:
                 operational_cash[pm] -= float(row.get("monthly_value", 0.0) or 0.0)
 
         mc = net - var_cost_tot - var_exp_tot
@@ -236,16 +237,16 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
 
     # investimentos
     for _, row in pd.DataFrame(st.session_state.get("investments", [])).iterrows():
-        month = int(row.get("month", 1) or 1) - 1
+        month = int(row.get("month", 0) or 0)
         value = float(row.get("value", 0.0) or 0.0)
-        if month < 0 or month >= horizon or value <= 0:
+        if month < 0 or month > horizon or value <= 0:
             continue
         if str(row.get("payment", "À vista")) == "Parcelado":
             inst = max(1, int(row.get("installments", 1) or 1))
             parcel = value / inst
             for k in range(inst):
                 pm = month + k
-                if pm < horizon:
+                if pm <= horizon:
                     investment_cash[pm] -= parcel
         else:
             investment_cash[month] -= value
@@ -260,7 +261,7 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
 
     fc_monthly = pd.DataFrame(
         {
-            "Mês": months,
+            "Mês": cash_months,
             "Caixa Operacional": operational_cash,
             "Caixa de Investimento": investment_cash,
             "Caixa Líquido do Mês": net_monthly_cash,
@@ -286,7 +287,7 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
         "mc_consolid_pct": mc_consolid_pct,
         "break_even_revenue": pe_revenue,
         "valley": float(accumulated[valley_idx]) if len(accumulated) else 0.0,
-        "valley_month": int(months[valley_idx]) if len(months) else 1,
+        "valley_month": int(cash_months[valley_idx]) if len(cash_months) else 0,
     }
 
     st.session_state["cashflow"][scenario_id] = {
@@ -305,9 +306,9 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
 def calc_viability(scenario_id: str, discount_m: float, reinvest_m: float) -> Dict[str, float]:
     result = calculate_scenario(scenario_id)
     flows = result["fc_monthly"]["Caixa Líquido do Mês"].to_numpy(dtype=float)
-    months = np.arange(1, len(flows) + 1)
+    periods = np.arange(len(flows))
 
-    vpl = float(np.sum(flows / ((1 + discount_m) ** months)))
+    vpl = float(np.sum(flows / ((1 + discount_m) ** periods)))
 
     try:
         tir = float(np.irr(flows))
@@ -324,10 +325,10 @@ def calc_viability(scenario_id: str, discount_m: float, reinvest_m: float) -> Di
         tirm = np.nan
 
     cum = np.cumsum(flows)
-    payback = next((i + 1 for i, v in enumerate(cum) if v >= 0), np.nan)
+    payback = next((i for i, v in enumerate(cum) if v >= 0), np.nan)
 
-    disc_cum = np.cumsum(flows / ((1 + discount_m) ** months))
-    payback_disc = next((i + 1 for i, v in enumerate(disc_cum) if v >= 0), np.nan)
+    disc_cum = np.cumsum(flows / ((1 + discount_m) ** periods))
+    payback_disc = next((i for i, v in enumerate(disc_cum) if v >= 0), np.nan)
 
     viab = {
         "vpl": vpl,
@@ -845,12 +846,12 @@ def step5() -> None:
 
     df = pd.DataFrame(st.session_state["investments"])
     if df.empty:
-        df = pd.DataFrame([{"item": "", "category": "CAPEX", "month": 1, "value": 0.0, "payment": "À vista"}])
+        df = pd.DataFrame([{"item": "", "category": "Investimento", "month": 0, "value": 0.0, "payment": "À vista"}])
 
     for col, default in {
         "item": "",
-        "category": "CAPEX",
-        "month": 1,
+        "category": "Investimento",
+        "month": 0,
         "value": 0.0,
         "payment": "À vista",
     }.items():
@@ -860,17 +861,17 @@ def step5() -> None:
     df = df[["item", "category", "month", "value", "payment"]]
     cfg = {
         "item": st.column_config.TextColumn("Item"),
-        "category": st.column_config.SelectboxColumn("Categoria", options=["CAPEX", "Implementação", "Outros"]),
-        "month": st.column_config.NumberColumn("Mês de realização", min_value=1, step=1),
+        "category": st.column_config.SelectboxColumn("Categoria", options=["Investimento", "Implementação", "Outros"]),
+        "month": st.column_config.NumberColumn("Período de realização", min_value=0, step=1),
         "value": st.column_config.NumberColumn("Valor", min_value=0.0, step=0.01, format="R$ %.2f"),
         "payment": st.column_config.SelectboxColumn("Forma de pagamento", options=["À vista", "Parcelado"]),
     }
     edited = st.data_editor(df, key="investments_table", num_rows="dynamic", use_container_width=True, hide_index=True, column_config=cfg)
 
-    edited["month"] = pd.to_numeric(edited.get("month", 1), errors="coerce").fillna(1).clip(lower=1).astype(int)
+    edited["month"] = pd.to_numeric(edited.get("month", 0), errors="coerce").fillna(0).clip(lower=0).astype(int)
     edited["value"] = pd.to_numeric(edited.get("value", 0.0), errors="coerce").fillna(0.0)
     edited["item"] = edited.get("item", "").fillna("")
-    edited["category"] = edited.get("category", "CAPEX").fillna("CAPEX")
+    edited["category"] = edited.get("category", "Investimento").fillna("Investimento")
     edited["payment"] = edited.get("payment", "À vista").fillna("À vista")
     edited["installments"] = 1
 
@@ -884,7 +885,7 @@ def step6() -> None:
     sid = st.session_state["current_scenario_id"]
     res = calculate_scenario(sid)
     fc = res["fc_monthly"].copy()
-    st.dataframe(fc[["Mês", "Caixa Operacional", "Caixa de Investimento", "Caixa Líquido do Mês", "Caixa Acumulado"]], use_container_width=True)
+    st.dataframe(fc[["Mês", "Caixa Operacional", "Caixa de Investimento", "Caixa Líquido do Mês", "Caixa Acumulado"]], use_container_width=True, hide_index=True)
 
     acum_operacional = fc["Caixa Operacional"].cumsum()
     valley_oper = float(acum_operacional.min()) if not acum_operacional.empty else 0.0
@@ -1007,13 +1008,13 @@ def step8() -> None:
     res = calculate_scenario(sid)
 
     st.markdown("### Fluxo de Caixa Anual (regime de caixa)")
-    st.dataframe(res["fc_annual"], use_container_width=True)
+    st.dataframe(res["fc_annual"], use_container_width=True, hide_index=True)
 
     st.markdown("### DRE (Demonstração do Resultado do Exercício) — Mensal")
-    st.dataframe(res["dre_monthly"], use_container_width=True)
+    st.dataframe(res["dre_monthly"], use_container_width=True, hide_index=True)
 
     st.markdown("### DRE (Demonstração do Resultado do Exercício) — Anual")
-    st.dataframe(res["dre_annual"], use_container_width=True)
+    st.dataframe(res["dre_annual"], use_container_width=True, hide_index=True)
 
     if st.button("Voltar para a Etapa 1", key="back_to_step_1"):
         st.session_state["step"] = 1
@@ -1039,8 +1040,7 @@ def step9() -> None:
         alt_scenarios.append({
             "name": f"Cenário Alternativo {len(alt_scenarios)+1}",
             "selected_changes": [],
-            "qty_plus_pct": 0.0,
-            "qty_minus_pct": 0.0,
+            "qty_delta_pct": 0.0,
             "mix_changes": {item["id"]: 0.0 for item in st.session_state["items"]},
             "price_pct": {item["id"]: 0.0 for item in st.session_state["items"]},
             "var_pct": {item["id"]: 0.0 for item in st.session_state["items"]},
@@ -1049,7 +1049,7 @@ def step9() -> None:
         st.rerun()
 
     options = [
-        "Variação para mais e para menos na quantidade vendida",
+        "Variação na quantidade vendida",
         "Alteração na proporção de vendas entre os produtos",
         "Variação percentual no preço dos produtos",
         "Variação percentual nos custos e despesas variáveis",
@@ -1068,9 +1068,13 @@ def step9() -> None:
             alt["selected_changes"] = selected
 
             if options[0] in selected:
-                c1, c2 = st.columns(2)
-                alt["qty_plus_pct"] = c1.number_input("Variação para mais na quantidade (%)", value=float(alt.get("qty_plus_pct", 0.0)), step=1.0, key=f"sens_qty_plus_{idx}")
-                alt["qty_minus_pct"] = c2.number_input("Variação para menos na quantidade (%)", value=float(alt.get("qty_minus_pct", 0.0)), step=1.0, key=f"sens_qty_minus_{idx}")
+                st.caption("Informe uma única variação: positiva (para mais) ou negativa (para menos).")
+                alt["qty_delta_pct"] = st.number_input(
+                    "Variação na quantidade vendida (%)",
+                    value=float(alt.get("qty_delta_pct", 0.0)),
+                    step=1.0,
+                    key=f"sens_qty_delta_{idx}",
+                )
 
             if options[1] in selected and len(st.session_state["items"]) > 1:
                 st.caption("Informe o ajuste percentual da participação de cada item no mix de vendas.")
@@ -1116,9 +1120,8 @@ def step9() -> None:
                     iid = item["id"]
                     base_qty = np.array(temp_scenario.get("quantities", {}).get(iid, [0.0] * horizon), dtype=float)
                     if options[0] in selected:
-                        plus = float(alt.get("qty_plus_pct", 0.0)) / 100
-                        minus = float(alt.get("qty_minus_pct", 0.0)) / 100
-                        base_qty = base_qty * max(0.0, (1 + plus - minus))
+                        delta = float(alt.get("qty_delta_pct", 0.0)) / 100
+                        base_qty = base_qty * max(0.0, (1 + delta))
 
                     if options[1] in selected and len(st.session_state["items"]) > 1:
                         mix = float(alt.get("mix_changes", {}).get(iid, 0.0)) / 100
