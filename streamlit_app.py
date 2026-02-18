@@ -708,6 +708,59 @@ def _render_break_even_summary(sid: str, scenario: Dict[str, Any]) -> None:
     else:
         st.info("Ponto de equilíbrio em receita indisponível enquanto a margem de contribuição consolidada for zero ou negativa.")
 
+    items = st.session_state["items"]
+    if items:
+        mix_rows: List[Dict[str, Any]] = []
+        total_revenue = 0.0
+        for item in items:
+            iid = item["id"]
+            econ = st.session_state["unit_economics"][iid]
+            price_eff = float(scenario["overrides"]["price"].get(iid, econ.get("price", 0.0)) or 0.0)
+            qty_total = float(np.sum(scenario.get("quantities", {}).get(iid, [])))
+            revenue_total = qty_total * price_eff
+            total_revenue += revenue_total
+            mix_rows.append(
+                {
+                    "Produto/Serviço": item["name"],
+                    "Unidade": item["unit"],
+                    "Preço unitário": price_eff,
+                    "Receita projetada": revenue_total,
+                    "Quantidade projetada": qty_total,
+                }
+            )
+
+        if total_revenue > 0:
+            be_revenue_total = float(result["break_even_revenue"]) if pd.notna(result["break_even_revenue"]) else np.nan
+            for row in mix_rows:
+                share = row["Receita projetada"] / total_revenue
+                row["Proporção da receita"] = share
+                row["PE Receita (mensal)"] = be_revenue_total * share if pd.notna(be_revenue_total) else np.nan
+                row["PE Quantidade (mensal)"] = (
+                    row["PE Receita (mensal)"] / row["Preço unitário"] if row["Preço unitário"] > 0 and pd.notna(row["PE Receita (mensal)"]) else np.nan
+                )
+        else:
+            for row in mix_rows:
+                row["Proporção da receita"] = np.nan
+                row["PE Receita (mensal)"] = np.nan
+                row["PE Quantidade (mensal)"] = np.nan
+
+        mix_df = pd.DataFrame(mix_rows)
+        st.markdown("#### Quadro de mix de receita e ponto de equilíbrio por produto/serviço")
+        st.dataframe(
+            mix_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Preço unitário": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Receita projetada": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Quantidade projetada": st.column_config.NumberColumn(format="%.2f"),
+                "Proporção da receita": st.column_config.ProgressColumn(format="%.2f%%", min_value=0.0, max_value=1.0),
+                "PE Receita (mensal)": st.column_config.NumberColumn(format="R$ %.2f"),
+                "PE Quantidade (mensal)": st.column_config.NumberColumn(format="%.2f"),
+            },
+        )
+        st.caption("A proporção usa a receita total projetada no horizonte selecionado. O PE por item distribui o ponto de equilíbrio mensal conforme esse mix.")
+
     if len(st.session_state["items"]) == 1:
         item = st.session_state["items"][0]
         mc_u = unit_metrics(item, scenario)["mc_u"]
@@ -722,7 +775,7 @@ def step4() -> None:
         st.write(
             "1) Escolha o cenário ativo.\n\n"
             "2) Defina o tempo e o modo de projeção.\n\n"
-            "3) Preencha as quantidades por item; a receita será calculada automaticamente.\n\n"
+            "3) Preencha as quantidades por item e a taxa de crescimento em porcentagem; a receita será calculada automaticamente.\n\n"
             "4) Veja o ponto de equilíbrio ao final."
         )
 
@@ -752,7 +805,15 @@ def step4() -> None:
         if scenario["projection_mode"] == "base_growth":
             b1, b2, b3 = st.columns([2, 2, 1])
             scenario["base_growth"][iid]["base"] = b1.number_input("Quantidade mês 1", min_value=0.0, step=1.0, value=float(scenario["base_growth"][iid].get("base", 0.0)), key=f"base_{sid}_{iid}")
-            scenario["base_growth"][iid]["growth"] = b2.number_input("Taxa de crescimento mensal", min_value=-0.99, step=0.01, value=float(scenario["base_growth"][iid].get("growth", 0.0)), format="%.4f", key=f"growth_{sid}_{iid}")
+            growth_percent = b2.number_input(
+                "Taxa de crescimento mensal (%)",
+                min_value=-99.0,
+                step=1.0,
+                value=float(scenario["base_growth"][iid].get("growth", 0.0) or 0.0) * 100,
+                format="%.2f",
+                key=f"growth_{sid}_{iid}",
+            )
+            scenario["base_growth"][iid]["growth"] = float(growth_percent) / 100
             if b3.button("Gerar série", key=f"gen_{sid}_{iid}"):
                 regenerate_quantities(scenario, iid)
 
