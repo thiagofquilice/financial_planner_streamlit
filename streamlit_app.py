@@ -403,10 +403,6 @@ def step1() -> None:
     if not st.session_state["items"]:
         st.info("Cadastre ao menos 1 item para seguir para as próximas etapas.")
 
-    st.write("**Itens cadastrados:**")
-    if st.session_state["items"]:
-        st.table(pd.DataFrame(st.session_state["items"])[["name", "unit"]].rename(columns={"name": "Produto/serviço", "unit": "Unidade"}))
-
     render_next(1, enabled=bool(st.session_state["items"]), disabled_help="Cadastre ao menos 1 produto/serviço para habilitar a próxima etapa.")
 
 
