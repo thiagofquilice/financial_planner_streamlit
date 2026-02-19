@@ -84,6 +84,73 @@ def init_state() -> None:
     st.session_state.setdefault("sensitivity_scenarios", [])
 
 
+def load_demo_data() -> None:
+    start_period = pd.Timestamp.today().replace(day=1)
+    items = [
+        default_item("demo_assinatura", "Assinatura Mensal", "assinatura"),
+        default_item("demo_implantacao", "Implantação", "projeto"),
+    ]
+    horizon = 12
+    scenario = default_scenario("Cenário 1 — Base", [item["id"] for item in items])
+    scenario["horizon_months"] = horizon
+    scenario["projection_mode"] = "base_growth"
+    scenario["base_growth"]["demo_assinatura"] = {"base": 20.0, "growth": 0.08}
+    scenario["base_growth"]["demo_implantacao"] = {"base": 4.0, "growth": 0.03}
+    scenario["quantities"]["demo_assinatura"] = [float(math.ceil(20 * ((1 + 0.08) ** m))) for m in range(horizon)]
+    scenario["quantities"]["demo_implantacao"] = [float(math.ceil(4 * ((1 + 0.03) ** m))) for m in range(horizon)]
+
+    st.session_state["step"] = 1
+    st.session_state["business"] = {"name": "Demo SaaS B2B", "start_period": start_period}
+    st.session_state["items"] = items
+    st.session_state["unit_economics"] = {
+        "demo_assinatura": {
+            "price": 299.0,
+            "tax_rate": 0.06,
+            "receive_days": 15,
+            "pay_days": 20,
+            "variable_costs": [
+                {"name": "Infraestrutura cloud", "qty": 1.0, "unit_value": 42.0},
+                {"name": "Suporte técnico", "qty": 1.0, "unit_value": 18.0},
+            ],
+            "variable_expenses": [
+                {"name": "Taxa gateway", "classification": "Operacional", "qty": 1.0, "unit_value": 7.5},
+                {"name": "Comissão comercial", "classification": "Vendas", "qty": 1.0, "unit_value": 15.0},
+            ],
+        },
+        "demo_implantacao": {
+            "price": 2200.0,
+            "tax_rate": 0.06,
+            "receive_days": 30,
+            "pay_days": 15,
+            "variable_costs": [
+                {"name": "Horas de consultoria", "qty": 12.0, "unit_value": 65.0},
+            ],
+            "variable_expenses": [
+                {"name": "Comissão projeto", "classification": "Vendas", "qty": 1.0, "unit_value": 180.0},
+            ],
+        },
+    }
+    st.session_state["fixed_costs"] = [
+        {"item": "Equipe base", "monthly_value": 22000.0, "pay_days": 0, "obs": "Folha"},
+        {"item": "Ferramentas", "monthly_value": 2600.0, "pay_days": 10, "obs": "SaaS"},
+    ]
+    st.session_state["fixed_expenses"] = [
+        {"item": "Marketing recorrente", "classification": "Vendas", "monthly_value": 5000.0, "pay_days": 0, "obs": "Mídia digital"},
+        {"item": "Administrativo", "classification": "Operacional", "monthly_value": 4200.0, "pay_days": 5, "obs": "Backoffice"},
+    ]
+    st.session_state["investments"] = [
+        {"item": "Setup plataforma", "category": "Implementação", "month": 0, "value": 18000.0, "payment": "À vista", "installments": 1},
+        {"item": "Treinamento comercial", "category": "Investimento", "month": 1, "value": 6000.0, "payment": "Parcelado", "installments": 3},
+    ]
+    st.session_state["scenarios"] = {"base": scenario}
+    st.session_state["current_scenario_id"] = "base"
+    st.session_state["cashflow"] = {}
+    st.session_state["viability"] = {}
+    st.session_state["statements"] = {}
+    st.session_state["sensitivity_scenarios"] = []
+    ensure_item_consistency()
+
+
 def ensure_item_consistency() -> None:
     item_ids = [i["id"] for i in st.session_state["items"]]
 
@@ -1619,6 +1686,11 @@ def main() -> None:
     st.set_page_config(page_title="Financial Planner", layout="wide")
     st.title("Financial Planner para startups")
     init_state()
+
+    if st.button("Carregar Demonstração de Preenchimento", key="load_demo_data", type="primary"):
+        load_demo_data()
+        st.success("Demonstração carregada! Os campos foram preenchidos com dados de exemplo.")
+
     ensure_item_consistency()
     render_nav()
 
