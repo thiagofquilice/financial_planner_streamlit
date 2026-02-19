@@ -1,10 +1,16 @@
 import math
+from io import BytesIO
 from copy import deepcopy
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 import streamlit as st
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 STEP_TITLES = [
@@ -379,6 +385,186 @@ def calc_viability(scenario_id: str, discount_m: float, reinvest_m: float) -> Di
     }
     st.session_state["viability"][scenario_id] = viab
     return viab
+
+
+def format_currency(value: float) -> str:
+    return f"R$ {float(value or 0.0):,.2f}"
+
+
+def to_pdf_table(df: pd.DataFrame, max_rows: int = 80) -> List[List[str]]:
+    if df.empty:
+        return [["Sem dados"]]
+
+    clipped = df.head(max_rows).copy()
+    clipped = clipped.replace({np.nan: "", pd.NA: ""})
+    header = [str(c) for c in clipped.columns.tolist()]
+    rows = []
+    for _, row in clipped.iterrows():
+        values = []
+        for value in row.tolist():
+            if isinstance(value, (float, np.floating)):
+                values.append(f"{float(value):,.2f}")
+            else:
+                values.append(str(value))
+        rows.append(values)
+
+    if len(df) > max_rows:
+        rows.append(["..." for _ in header])
+    return [header] + rows
+
+
+def build_pdf_report(scenario_id: str) -> bytes:
+    scenario = st.session_state["scenarios"][scenario_id]
+    result = calculate_scenario(scenario_id)
+    discount = float(st.session_state.get("discount_rate", annual_rate_percent_to_monthly_decimal(12.0)))
+    reinvest = float(st.session_state.get("reinvest_rate", discount))
+    viability = calc_viability(scenario_id, discount, reinvest)
+
+    styles = getSampleStyleSheet()
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=1.2 * cm,
+        leftMargin=1.2 * cm,
+        topMargin=1.2 * cm,
+        bottomMargin=1.2 * cm,
+    )
+    elements = []
+
+    def add_heading(text: str) -> None:
+        elements.append(Paragraph(f"<b>{text}</b>", styles["Heading3"]))
+        elements.append(Spacer(1, 0.2 * cm))
+
+    def add_key_values(rows: List[Tuple[str, str]]) -> None:
+        table = Table(rows, repeatRows=1, colWidths=[6.0 * cm, 12.0 * cm])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        elements.append(table)
+        elements.append(Spacer(1, 0.35 * cm))
+
+    def add_dataframe(title: str, dataframe: pd.DataFrame) -> None:
+        add_heading(title)
+        data = to_pdf_table(dataframe)
+        table = Table(data, repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0E7490")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ]
+            )
+        )
+        elements.append(table)
+        elements.append(Spacer(1, 0.35 * cm))
+
+    business = st.session_state.get("business", {})
+    scenario_name = str(scenario.get("name", scenario_id))
+    start_period = business.get("start_period")
+    start_period_fmt = pd.to_datetime(start_period).strftime("%m/%Y") if start_period is not None else ""
+
+    elements.append(Paragraph("<b>Relatório de Planejamento Financeiro</b>", styles["Title"]))
+    elements.append(Spacer(1, 0.3 * cm))
+    add_key_values(
+        [
+            ["Empresa", str(business.get("name", ""))],
+            ["Cenário", scenario_name],
+            ["Início da projeção", start_period_fmt],
+            ["Horizonte (meses)", str(scenario.get("horizon_months", 12))],
+        ]
+    )
+
+    add_heading("Entradas - Produtos e Serviços")
+    items_rows = []
+    for item in st.session_state.get("items", []):
+        econ = st.session_state["unit_economics"].get(item["id"], {})
+        items_rows.append(
+            {
+                "Item": item.get("name", ""),
+                "Unidade": item.get("unit", ""),
+                "Preço": float(econ.get("price", 0.0) or 0.0),
+                "Tributos (%)": float(econ.get("tax_rate", 0.0) or 0.0) * 100,
+                "Prazo recebimento (dias)": int(econ.get("receive_days", 0) or 0),
+                "Prazo pagamento variável (dias)": int(econ.get("pay_days", 0) or 0),
+            }
+        )
+    add_dataframe("Resumo de produtos", pd.DataFrame(items_rows))
+
+    variable_cost_rows = []
+    for item in st.session_state.get("items", []):
+        econ = st.session_state["unit_economics"].get(item["id"], {})
+        for row in econ.get("variable_costs", []):
+            variable_cost_rows.append(
+                {
+                    "Item": item.get("name", ""),
+                    "Custo variável": row.get("name", ""),
+                    "Qtd por unidade": float(row.get("qty", 0.0) or 0.0),
+                    "Valor unitário": float(row.get("unit_value", 0.0) or 0.0),
+                }
+            )
+    add_dataframe("Custos variáveis unitários", pd.DataFrame(variable_cost_rows))
+
+    variable_exp_rows = []
+    for item in st.session_state.get("items", []):
+        econ = st.session_state["unit_economics"].get(item["id"], {})
+        for row in econ.get("variable_expenses", []):
+            variable_exp_rows.append(
+                {
+                    "Item": item.get("name", ""),
+                    "Despesa variável": row.get("name", ""),
+                    "Classificação": row.get("classification", ""),
+                    "Qtd por unidade": float(row.get("qty", 0.0) or 0.0),
+                    "Valor unitário": float(row.get("unit_value", 0.0) or 0.0),
+                }
+            )
+    add_dataframe("Despesas variáveis unitárias", pd.DataFrame(variable_exp_rows))
+
+    add_dataframe("Entradas - Custos fixos", pd.DataFrame(st.session_state.get("fixed_costs", [])))
+    add_dataframe("Entradas - Despesas fixas", pd.DataFrame(st.session_state.get("fixed_expenses", [])))
+    add_dataframe("Entradas - Investimentos", pd.DataFrame(st.session_state.get("investments", [])))
+
+    quantities = pd.DataFrame(scenario.get("quantities", {}))
+    if not quantities.empty:
+        quantities.insert(0, "Mês", range(1, len(quantities) + 1))
+    add_dataframe("Entradas - Volumes projetados por item", quantities)
+
+    add_heading("Resultados - Indicadores de viabilidade")
+    add_key_values(
+        [
+            ["VPL", format_currency(viability["vpl"])],
+            ["TIR", "N/A" if pd.isna(viability["tir"]) else f"{viability['tir']:.2%}"],
+            ["TIRM", "N/A" if pd.isna(viability["tirm"]) else f"{viability['tirm']:.2%}"],
+            ["Payback", "Não recupera" if pd.isna(viability["payback"]) else f"{int(viability['payback'])} meses"],
+            [
+                "Payback descontado",
+                "Não recupera" if pd.isna(viability["payback_discounted"]) else f"{int(viability['payback_discounted'])} meses",
+            ],
+            ["Ponto de equilíbrio em receita", "N/A" if pd.isna(result["break_even_revenue"]) else format_currency(result["break_even_revenue"])],
+            ["Necessidade de caixa máxima", format_currency(abs(min(0.0, result["valley"])))],
+            ["Mês de maior necessidade", str(result["valley_month"])],
+        ]
+    )
+
+    add_dataframe("Resultados - Fluxo de Caixa Mensal", result["fc_monthly"])
+    add_dataframe("Resultados - Fluxo de Caixa Anual", result["fc_annual"])
+    add_dataframe("Resultados - DRE Mensal", result["dre_monthly"])
+    add_dataframe("Resultados - DRE Anual", result["dre_annual"])
+
+    doc.build(elements)
+    return buffer.getvalue()
 
 
 def render_nav() -> None:
@@ -1127,6 +1313,16 @@ def step8() -> None:
 
     st.markdown("### DRE (Demonstração do Resultado do Exercício) — Anual")
     st.dataframe(res["dre_annual"], use_container_width=True, hide_index=True)
+
+    st.markdown("### Exportação")
+    pdf_bytes = build_pdf_report(sid)
+    st.download_button(
+        "Baixar relatório completo em PDF",
+        data=pdf_bytes,
+        file_name=f"relatorio_financeiro_{sid}.pdf",
+        mime="application/pdf",
+        use_container_width=True,
+    )
 
     if st.button("Voltar para a Etapa 1", key="back_to_step_1"):
         st.session_state["step"] = 1
