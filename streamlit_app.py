@@ -84,8 +84,36 @@ def init_state() -> None:
     st.session_state.setdefault("viability", {})
     st.session_state.setdefault("statements", {})
     st.session_state.setdefault("sensitivity_scenarios", [])
-    st.session_state.setdefault("module", "Planejamento financeiro")
+    st.session_state.setdefault("module", None)
     st.session_state.setdefault("governance_report", None)
+
+
+def render_flow_selection_screen() -> None:
+    st.subheader("Escolha o fluxo inicial")
+    st.markdown(
+        """
+        Selecione abaixo como deseja começar:
+
+        - **Planejamento financeiro**: construa projeções de receitas, custos, fluxo de caixa,
+          demonstrativos e análise de viabilidade em etapas guiadas.
+        - **Diagnóstico de governança**: responda a um questionário objetivo para gerar um mini
+          relatório com recomendações práticas sobre alinhamento societário e gestão.
+        """
+    )
+
+    c1, c2 = st.columns(2)
+    if c1.button("Ir para Planejamento financeiro", use_container_width=True, type="primary"):
+        st.session_state["module"] = "Planejamento financeiro"
+        st.rerun()
+    if c2.button("Ir para Diagnóstico de governança", use_container_width=True):
+        st.session_state["module"] = "Diagnóstico de governança"
+        st.rerun()
+
+
+def render_back_to_selection_button() -> None:
+    if st.button("← Voltar para escolha de fluxo", key="back_to_flow_selection"):
+        st.session_state["module"] = None
+        st.rerun()
 
 
 def load_demo_data() -> None:
@@ -1755,14 +1783,14 @@ def main() -> None:
     st.title("Financial Planner para startups")
     init_state()
 
-    st.session_state["module"] = st.radio(
-        "Selecione o fluxo",
-        ["Planejamento financeiro", "Diagnóstico de governança"],
-        index=0 if st.session_state.get("module") == "Planejamento financeiro" else 1,
-        horizontal=True,
-    )
+    module = st.session_state.get("module")
+    if not module:
+        render_flow_selection_screen()
+        return
 
-    if st.session_state["module"] == "Diagnóstico de governança":
+    render_back_to_selection_button()
+
+    if module == "Diagnóstico de governança":
         show_governance_assessment()
         return
 
