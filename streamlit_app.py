@@ -12,6 +12,8 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from streamlit_app_antigo import GOVERNANCE_QUESTIONS
+
 
 STEP_TITLES = [
     "Produtos e Serviços (configuração mínima)",
@@ -82,6 +84,8 @@ def init_state() -> None:
     st.session_state.setdefault("viability", {})
     st.session_state.setdefault("statements", {})
     st.session_state.setdefault("sensitivity_scenarios", [])
+    st.session_state.setdefault("module", "Planejamento financeiro")
+    st.session_state.setdefault("governance_report", None)
 
 
 def load_demo_data() -> None:
@@ -1682,10 +1686,85 @@ def step9() -> None:
                 alt_scenarios.pop(idx)
                 st.rerun()
 
+
+def show_governance_assessment() -> None:
+    st.header("Avaliação de governança corporativa (startups)")
+    st.markdown(
+        """
+        Responda às perguntas abaixo para avaliar o nível de governança entre os fundadores. As
+        questões cobrem alinhamento, contribuições, propriedade intelectual e regras societárias.
+        Ao final, um mini relatório traz recomendações práticas para cada resposta e um resumo
+        geral do estágio de governança.
+        """
+    )
+
+    existing_report = st.session_state.get("governance_report") or {}
+    with st.form("governance_form"):
+        responses: Dict[int, str] = {}
+        for idx, question in enumerate(GOVERNANCE_QUESTIONS, start=1):
+            st.markdown(f"### {question['title']}")
+            option_keys = list(question["options"].keys())
+            previous = existing_report.get(idx)
+            choice = st.radio(
+                question["question"],
+                options=option_keys,
+                index=(option_keys.index(previous) if previous in option_keys else 0),
+                format_func=lambda opt, q=question: f"{opt}) {q['options'][opt]}",
+                key=f"governance_q_{idx}",
+            )
+            responses[idx] = choice
+
+        submitted = st.form_submit_button("Gerar relatório")
+
+    if submitted:
+        st.session_state["governance_report"] = responses
+
+    report = st.session_state.get("governance_report") or {}
+    if report:
+        st.subheader("Mini relatório de recomendações")
+        ab_count = 0
+        cd_count = 0
+        for idx, question in enumerate(GOVERNANCE_QUESTIONS, start=1):
+            answer_key = report.get(idx)
+            if not answer_key:
+                continue
+            if answer_key in ["a", "b"]:
+                ab_count += 1
+            else:
+                cd_count += 1
+
+            st.markdown(f"**{question['title']}**")
+            st.markdown(question["question"])
+            st.markdown(f"- **Resposta:** {answer_key}) {question['options'].get(answer_key, '')}")
+            st.markdown(f"- **Recomendação:** {question['recommendations'].get(answer_key, '')}")
+            st.divider()
+
+        st.subheader("Resumo geral")
+        st.markdown(f"Respostas em **a/b**: {ab_count} · Respostas em **c/d**: {cd_count}")
+        if ab_count > cd_count:
+            st.info(
+                "Sua governança está em estágio inicial. Priorize o alinhamento entre sócios, a formalização de combinados e a organização mínima de controles financeiros e societários."
+            )
+        else:
+            st.success(
+                "Vocês já têm boas práticas de governança para a fase de ideação. Mantenham a revisão periódica dos acordos e preparem-se para formalizá-los ainda mais à medida que a startup evolui."
+            )
+
 def main() -> None:
     st.set_page_config(page_title="Financial Planner", layout="wide")
     st.title("Financial Planner para startups")
     init_state()
+
+    st.session_state["module"] = st.radio(
+        "Selecione o fluxo",
+        ["Planejamento financeiro", "Diagnóstico de governança"],
+        index=0 if st.session_state.get("module") == "Planejamento financeiro" else 1,
+        horizontal=True,
+    )
+
+    if st.session_state["module"] == "Diagnóstico de governança":
+        show_governance_assessment()
+        return
 
     if st.button("Carregar Demonstração de Preenchimento", key="load_demo_data", type="primary"):
         load_demo_data()
