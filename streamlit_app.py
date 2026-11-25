@@ -415,12 +415,15 @@ def calculate_scenario(scenario_id: str) -> Dict[str, Any]:
     fc_annual = fc_monthly.groupby("Ano", as_index=False).sum(numeric_only=True)
 
     # ponto de equilíbrio
+    # O PE é expresso em receita bruta (faturamento), pois é dividido pelo preço de venda
+    # para chegar à quantidade de equilíbrio. A MC consolidada (%) continua sobre a receita líquida.
     mc_consolid_pct = 0.0
+    gross_total = float(dre_monthly["Receita bruta"].sum())
     net_total = float(dre_monthly["Receita líquida"].sum())
     mc_total = float(dre_monthly["Margem de contribuição"].sum())
     if net_total > 0:
         mc_consolid_pct = mc_total / net_total
-    pe_revenue = (fixed_total / mc_consolid_pct) if mc_consolid_pct > 0 else np.nan
+    pe_revenue = (fixed_total * gross_total / mc_total) if mc_total > 0 and gross_total > 0 else np.nan
 
     res = {
         "dre_monthly": dre_monthly,
@@ -651,7 +654,7 @@ def build_pdf_report(scenario_id: str) -> bytes:
                 "Payback descontado",
                 "Não recupera" if pd.isna(viability["payback_discounted"]) else f"{int(viability['payback_discounted'])} meses",
             ],
-            ["Ponto de equilíbrio em receita", "N/A" if pd.isna(result["break_even_revenue"]) else format_currency(result["break_even_revenue"])],
+            ["Ponto de equilíbrio em receita bruta (mensal)", "N/A" if pd.isna(result["break_even_revenue"]) else format_currency(result["break_even_revenue"])],
             ["Necessidade de caixa máxima", format_currency(abs(min(0.0, result["valley"])))],
             ["Mês de maior necessidade", str(result["valley_month"])],
         ]
@@ -1047,7 +1050,7 @@ def _render_break_even_summary(sid: str, scenario: Dict[str, Any]) -> None:
     result = calculate_scenario(sid)
     st.metric("MC consolidada (%)", f"{result['mc_consolid_pct']:.2%}")
     if pd.notna(result["break_even_revenue"]):
-        st.metric("Ponto de Equilíbrio em Receita (mensal)", f"R$ {result['break_even_revenue']:,.2f}")
+        st.metric("Ponto de Equilíbrio em Receita bruta (mensal)", f"R$ {result['break_even_revenue']:,.2f}")
     else:
         st.info("Ponto de equilíbrio em receita indisponível enquanto a margem de contribuição consolidada for zero ou negativa.")
 
@@ -1330,7 +1333,7 @@ def step7() -> None:
 
     m1, m2 = st.columns(2)
     m1.metric("MC total", f"R$ {mc_total:,.2f}")
-    m2.metric("Ponto de equilíbrio (receita)", "N/A" if pd.isna(res["break_even_revenue"]) else f"R$ {res['break_even_revenue']:,.2f}")
+    m2.metric("Ponto de equilíbrio (receita bruta mensal)", "N/A" if pd.isna(res["break_even_revenue"]) else f"R$ {res['break_even_revenue']:,.2f}")
 
     mix_rows = []
     qty_total = 0.0
@@ -1673,19 +1676,22 @@ def step9() -> None:
                     for item in st.session_state["items"]
                 }
                 qty_total_all = float(sum(qty_totals.values()))
+                prices = {item["id"]: unit_metrics(item, temp_scenario)["price"] for item in st.session_state["items"]}
+                revenue_total_all = float(sum(qty_totals[iid] * prices[iid] for iid in qty_totals))
                 pe_revenue_total = float(result["break_even_revenue"]) if pd.notna(result["break_even_revenue"]) else np.nan
                 for item in st.session_state["items"]:
                     iid = item["id"]
-                    metrics = unit_metrics(item, temp_scenario)
                     qty_total = qty_totals[iid]
                     mix_qty = (qty_total / qty_total_all) if qty_total_all > 0 else 0.0
-                    pe_revenue_i = (pe_revenue_total * mix_qty) if pd.notna(pe_revenue_total) else np.nan
+                    # Mesmo critério da Etapa 4: o PE em receita é distribuído pela participação na receita.
+                    revenue_share = (qty_total * prices[iid] / revenue_total_all) if revenue_total_all > 0 else 0.0
+                    pe_revenue_i = (pe_revenue_total * revenue_share) if pd.notna(pe_revenue_total) else np.nan
                     mix_rows.append(
                         {
                             "Produto/Serviço": item["name"],
                             "Mix (%)": mix_qty,
                             "PE em Receita (R$)": pe_revenue_i,
-                            "PE em Quantidade (unid)": (pe_revenue_i / metrics["price"]) if metrics["price"] > 0 and pd.notna(pe_revenue_i) else np.nan,
+                            "PE em Quantidade (unid)": (pe_revenue_i / prices[iid]) if prices[iid] > 0 and pd.notna(pe_revenue_i) else np.nan,
                             "Quantidade projetada": qty_total,
                         }
                     )
